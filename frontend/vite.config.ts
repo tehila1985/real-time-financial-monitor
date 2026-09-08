@@ -10,5 +10,8 @@ export default defineConfig({
     // 'threads' instead of Vitest's default 'forks': subprocess spawning is
     // unreliable in some sandboxed/CI shells (observed here), worker_threads is not.
     pool: 'threads',
+    // Running multiple test files' worker threads concurrently also timed out
+    // in this sandboxed shell; running them sequentially is slower but reliable.
+    fileParallelism: false,
   },
 })
