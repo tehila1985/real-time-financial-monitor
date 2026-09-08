@@ -64,7 +64,10 @@ if (app.Environment.IsDevelopment())
 
 app.UseExceptionHandler();
 
-app.UseHttpsRedirection();
+// No UseHttpsRedirection(): TLS termination isn't configured anywhere in this
+// stack (nginx is the public-facing side per §18; this backend is internal-only
+// in docker-compose/K8s). Left in, it would fail its HTTPS-port lookup and log
+// a warning on every single request, for a redirect that can never happen.
 
 app.UseCors();
 

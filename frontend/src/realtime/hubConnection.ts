@@ -29,6 +29,12 @@ export function useTransactionHub(onTransactionReceived: (transaction: Transacti
   })
 
   useEffect(() => {
+    // Guards against a stale connection's callbacks touching state after this
+    // effect has already been cleaned up — e.g. React StrictMode's dev-only
+    // mount→cleanup→remount, where connection.stop() may run while start()
+    // is still in flight (same pattern as useTransactionFeed's snapshot fetch).
+    let cancelled = false
+
     const connection = new HubConnectionBuilder()
       .withUrl(HUB_URL)
       .withAutomaticReconnect()
@@ -36,18 +42,29 @@ export function useTransactionHub(onTransactionReceived: (transaction: Transacti
       .build()
 
     connection.on('TransactionReceived', (transaction: Transaction) => {
-      handlerRef.current(transaction)
+      if (!cancelled) handlerRef.current(transaction)
     })
-    connection.onreconnecting(() => setState('reconnecting'))
-    connection.onreconnected(() => setState('connected'))
-    connection.onclose(() => setState('disconnected'))
+    connection.onreconnecting(() => {
+      if (!cancelled) setState('reconnecting')
+    })
+    connection.onreconnected(() => {
+      if (!cancelled) setState('connected')
+    })
+    connection.onclose(() => {
+      if (!cancelled) setState('disconnected')
+    })
 
     connection
       .start()
-      .then(() => setState('connected'))
-      .catch(() => setState('disconnected'))
+      .then(() => {
+        if (!cancelled) setState('connected')
+      })
+      .catch(() => {
+        if (!cancelled) setState('disconnected')
+      })
 
     return () => {
+      cancelled = true
       void connection.stop()
     }
   }, [])

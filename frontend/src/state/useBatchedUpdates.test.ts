@@ -59,7 +59,7 @@ describe('useBatchedUpdates', () => {
     expect(result.current.items).toEqual([1, 2])
   })
 
-  it('seed replaces the current items immediately, without going through the buffer', () => {
+  it('seed applies immediately (bypassing the animation-frame buffer) when nothing was there before', () => {
     const { result } = renderHook(() =>
       useBatchedUpdates<number>((previous, batch) => [...previous, ...batch]),
     )
@@ -67,5 +67,30 @@ describe('useBatchedUpdates', () => {
     act(() => result.current.seed([10, 20]))
 
     expect(result.current.items).toEqual([10, 20])
+  })
+
+  it('seed merges rather than overwrites — a live item that already flushed is not lost', () => {
+    // Regression test: seed() used to be a plain setItems(initial), which
+    // silently discarded any item a concurrent enqueue() had already flushed
+    // into state before the seed (e.g. a snapshot fetch resolving after a
+    // SignalR message already arrived — there's no guaranteed order between
+    // the two on mount).
+    let rafCallback: FrameRequestCallback | undefined
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => {
+      rafCallback = cb
+      return 1
+    })
+
+    const { result } = renderHook(() =>
+      useBatchedUpdates<number>((previous, batch) => [...previous, ...batch]),
+    )
+
+    act(() => result.current.enqueue(99)) // a "live" item arrives first...
+    act(() => rafCallback?.(0)) // ...and flushes into state...
+    expect(result.current.items).toEqual([99])
+
+    act(() => result.current.seed([10, 20])) // ...before the "snapshot" seed lands
+
+    expect(result.current.items).toEqual([99, 10, 20])
   })
 })

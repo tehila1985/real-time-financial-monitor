@@ -3,6 +3,10 @@
 
 export type TransactionStatus = 'Pending' | 'Completed' | 'Failed'
 
+// Single source of truth for the runtime values — previously copy-pasted
+// separately into TransactionForm, TransactionGenerator, and FilterBar.
+export const TRANSACTION_STATUSES: readonly TransactionStatus[] = ['Pending', 'Completed', 'Failed']
+
 export interface Transaction {
   transactionId: string
   amount: number

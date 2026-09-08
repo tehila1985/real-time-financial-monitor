@@ -1,6 +1,7 @@
+import { TRANSACTION_STATUSES } from '../types/transaction'
 import type { StatusFilter } from '../state/filterTransactions'
 
-const OPTIONS: StatusFilter[] = ['All', 'Pending', 'Completed', 'Failed']
+const OPTIONS: StatusFilter[] = ['All', ...TRANSACTION_STATUSES]
 
 // "Failed" is surfaced as "Errors" to match the spec's own wording (FR7:
 // "Show only Errors").

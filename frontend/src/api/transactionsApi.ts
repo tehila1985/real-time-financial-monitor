@@ -5,22 +5,26 @@ import type { Transaction } from '../types/transaction'
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
 const TRANSACTIONS_URL = `${API_BASE_URL}/api/transactions`
 
-export async function postTransaction(transaction: Transaction): Promise<Transaction> {
-  const response = await fetch(TRANSACTIONS_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(transaction),
-  })
+async function fetchJson<T>(input: RequestInfo, init: RequestInit | undefined, action: string): Promise<T> {
+  const response = await fetch(input, init)
   if (!response.ok) {
-    throw new Error(`Failed to submit transaction (${response.status})`)
+    throw new Error(`Failed to ${action} (${response.status})`)
   }
-  return response.json() as Promise<Transaction>
+  return response.json() as Promise<T>
 }
 
-export async function getTransactionsSnapshot(): Promise<Transaction[]> {
-  const response = await fetch(TRANSACTIONS_URL)
-  if (!response.ok) {
-    throw new Error(`Failed to fetch transactions (${response.status})`)
-  }
-  return response.json() as Promise<Transaction[]>
+export function postTransaction(transaction: Transaction): Promise<Transaction> {
+  return fetchJson<Transaction>(
+    TRANSACTIONS_URL,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(transaction),
+    },
+    'submit transaction',
+  )
+}
+
+export function getTransactionsSnapshot(): Promise<Transaction[]> {
+  return fetchJson<Transaction[]>(TRANSACTIONS_URL, undefined, 'fetch transactions')
 }

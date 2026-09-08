@@ -11,9 +11,13 @@ function mergeByIdNewestFirst(previous: Transaction[], batch: Transaction[]): Tr
   // than duplicating a row.
   const byId = new Map(previous.map((t) => [t.transactionId, t]))
   for (const t of batch) byId.set(t.transactionId, t)
-  return Array.from(byId.values()).sort(
-    (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
-  )
+
+  // Parse each timestamp once up front rather than inside the comparator —
+  // this runs on every animation-frame flush (docs/DESIGN.md §16), so an
+  // O(n log n) sort otherwise re-parses each element's Date O(log n) times.
+  return Array.from(byId.values(), (t) => [Date.parse(t.timestamp), t] as const)
+    .sort((a, b) => b[0] - a[0])
+    .map(([, t]) => t)
 }
 
 /**

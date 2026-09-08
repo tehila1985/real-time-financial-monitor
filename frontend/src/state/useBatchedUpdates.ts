@@ -29,7 +29,13 @@ export function useBatchedUpdates<T>(applyBatch: (previous: T[], batch: T[]) => 
     [applyBatch],
   )
 
-  const seed = useCallback((initial: T[]) => setItems(initial), [])
+  // Merges through applyBatch rather than overwriting outright: if a live
+  // enqueue()'d item already flushed into state before this resolves (a real
+  // race — the snapshot fetch and the SignalR connection start concurrently
+  // on mount, with no guaranteed order), a plain `setItems(initial)` would
+  // silently discard it. Treating the snapshot as "the initial batch" through
+  // the same merge function used for live updates makes seeding order-safe.
+  const seed = useCallback((initial: T[]) => setItems((previous) => applyBatch(previous, initial)), [applyBatch])
 
   return { items, enqueue, seed }
 }

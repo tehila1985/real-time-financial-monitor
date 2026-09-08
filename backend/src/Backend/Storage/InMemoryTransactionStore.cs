@@ -22,11 +22,7 @@ public sealed class InMemoryTransactionStore : IStorage
 
     public InMemoryTransactionStore(int retentionCap = 1000)
     {
-        if (retentionCap <= 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(retentionCap), retentionCap, "Retention cap must be positive.");
-        }
-
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(retentionCap);
         _cap = retentionCap;
     }
 
@@ -51,9 +47,15 @@ public sealed class InMemoryTransactionStore : IStorage
 
     public IReadOnlyList<Transaction> GetSnapshot()
     {
+        // Only the O(n) copy needs the lock; sorting is read-only work on our
+        // own private copy and must not hold up Add() (every POST) while it runs.
+        List<Transaction> copy;
         lock (_lock)
         {
-            return _byId.Values.OrderByDescending(t => t.Timestamp).ToList();
+            copy = new List<Transaction>(_byId.Values);
         }
+
+        copy.Sort(static (a, b) => b.Timestamp.CompareTo(a.Timestamp));
+        return copy;
     }
 }

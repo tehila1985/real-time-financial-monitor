@@ -1,10 +1,9 @@
 import { useState } from 'react'
 import { postTransaction } from '../api/transactionsApi'
-import type { Transaction, TransactionStatus } from '../types/transaction'
+import { TRANSACTION_STATUSES, type Transaction } from '../types/transaction'
 
 // Single one-click generator — deliberately NOT a bulk/burst button; that's
 // `scripts/burst-test.sh` (docs/DESIGN.md §15), kept out of the product UI.
-const STATUSES: TransactionStatus[] = ['Pending', 'Completed', 'Failed']
 const CURRENCIES = ['USD', 'EUR', 'GBP']
 
 function randomTransaction(): Transaction {
@@ -12,7 +11,7 @@ function randomTransaction(): Transaction {
     transactionId: crypto.randomUUID(),
     amount: Math.round(Math.random() * 1_000_000) / 100,
     currency: CURRENCIES[Math.floor(Math.random() * CURRENCIES.length)],
-    status: STATUSES[Math.floor(Math.random() * STATUSES.length)],
+    status: TRANSACTION_STATUSES[Math.floor(Math.random() * TRANSACTION_STATUSES.length)],
     timestamp: new Date().toISOString(),
   }
 }

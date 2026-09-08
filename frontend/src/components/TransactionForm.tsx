@@ -1,8 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { postTransaction } from '../api/transactionsApi'
-import type { Transaction, TransactionStatus } from '../types/transaction'
-
-const STATUSES: TransactionStatus[] = ['Pending', 'Completed', 'Failed']
+import { TRANSACTION_STATUSES, type Transaction, type TransactionStatus } from '../types/transaction'
 
 /** Manual entry half of /add — see TransactionGenerator for the one-click half. */
 export function TransactionForm() {
@@ -50,7 +48,7 @@ export function TransactionForm() {
       <label>
         Status
         <select value={status} onChange={(e) => setStatus(e.target.value as TransactionStatus)}>
-          {STATUSES.map((s) => (
+          {TRANSACTION_STATUSES.map((s) => (
             <option key={s} value={s}>
               {s}
             </option>
