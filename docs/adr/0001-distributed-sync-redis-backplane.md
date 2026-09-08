@@ -37,6 +37,14 @@ The wiring is conditional on purpose: local `dotnet run` and the `WebApplication
 
 No change is required to `TransactionsController`, `TransactionService`, or `IStorage` — the backplane is entirely internal to the SignalR broadcast mechanism, which is exactly why keeping broadcast isolated behind `IHubContext` (see [DESIGN.md §11](../DESIGN.md#11-real-time-architecture)) pays off here.
 
+## Scope — what this solves, and what it deliberately does not
+
+**Solves:** live broadcast fan-out. A client connected to any pod now receives every `TransactionReceived` event, regardless of which pod handled the `POST` that produced it — verified directly (see Status above).
+
+**Does NOT solve: cross-pod read consistency.** `IStorage` (`InMemoryTransactionStore`) remains a separate, unsynchronized instance per pod — the Redis backplane only carries the SignalR *event*, not the underlying data. Concretely: if a client's `GET /api/transactions` (e.g. on `/monitor`'s initial load, or a page refresh) is routed by the Kubernetes Service to Pod A, it will not see a transaction that was `POST`ed to Pod B, even though a client already listening live *would* have received that same transaction as a broadcast. The two endpoints have different consistency guarantees across pods, which is easy to miss since single-instance testing (or testing only the live-update path) never exposes it.
+
+**Why this is left as a known limitation rather than fixed here:** closing this gap requires shared, consistent storage (an actual database, or at minimum a shared cache all pods read from) — which is precisely the persistence trade-off already made and justified in [DESIGN.md §13](../DESIGN.md#13-storage-design) (in-memory, no cross-restart/cross-process durability, because nothing in the assignment requires it). Fixing cross-pod read consistency without revisiting that decision would mean solving a bigger problem than this ADR is scoped to, in a system explicitly not going to production. A real rollout would need to solve storage and broadcast consistency together, not this backplane alone.
+
 ## Rationale
 - It is the narrowest possible fix for the exact problem stated: it does not introduce durability, ordering, or streaming guarantees the system does not need.
 - It is officially supported and documented by Microsoft for this precise scenario, minimizing implementation risk.

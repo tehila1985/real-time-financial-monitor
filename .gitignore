@@ -24,3 +24,6 @@ Thumbs.db
 .env
 .env.local
 appsettings.*.local.json
+
+# Personal interview-prep study notes — not part of the deliverable, never pushed
+study/
