@@ -3,6 +3,7 @@ using Backend.Models;
 using Backend.Services;
 using Backend.Storage;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 
 namespace Backend.Tests.Services;
@@ -44,7 +45,7 @@ public class TransactionServiceTests
         var hubContext = new Mock<IHubContext<TransactionHub>>();
         hubContext.Setup(h => h.Clients).Returns(hubClients.Object);
 
-        var service = new TransactionService(storage.Object, hubContext.Object);
+        var service = new TransactionService(storage.Object, hubContext.Object, NullLogger<TransactionService>.Instance);
 
         return (storage, clientProxy, service);
     }
@@ -92,5 +93,25 @@ public class TransactionServiceTests
         await service.ProcessAsync(transaction);
 
         Assert.Equal(new[] { "storage", "broadcast" }, callOrder);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_BroadcastThrows_DoesNotFailTheAlreadySuccessfulWrite()
+    {
+        // The storage write is the durability contract; broadcasting is
+        // best-effort. A transient SignalR/Redis failure here must not turn an
+        // already-persisted transaction into a caller-visible failure (see the
+        // XML doc on ProcessAsync for the full reasoning).
+        var (storage, clientProxy, service) = CreateSut();
+        var transaction = MakeTransaction();
+
+        clientProxy
+            .Setup(p => p.SendCoreAsync(It.IsAny<string>(), It.IsAny<object?[]>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("simulated broadcast failure"));
+
+        var exception = await Record.ExceptionAsync(() => service.ProcessAsync(transaction));
+
+        Assert.Null(exception);
+        storage.Verify(s => s.Add(transaction), Times.Once);
     }
 }

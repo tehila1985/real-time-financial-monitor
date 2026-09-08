@@ -2,6 +2,10 @@
 # backplane that lets all backend pods share broadcasts. A single replica is
 # intentional here — Redis itself is not the thing being scaled or made
 # highly-available in this MVP; only the backend's stateless pods are.
+#
+# No auth configured. Acceptable ONLY because redis-service.yaml is
+# ClusterIP-only (never externally reachable) — if that ever changes, add
+# `--requirepass` via a Secret before it does.
 apiVersion: apps/v1
 kind: Deployment
 metadata:

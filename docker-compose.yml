@@ -5,6 +5,10 @@
 services:
   redis:
     image: redis:7-alpine
+    # No auth (`--requirepass`) configured. Acceptable ONLY because this
+    # instance has zero external exposure in this topology (`expose`, not
+    # `ports` — never reachable from the host). If that ever changes (e.g. a
+    # port gets published for local debugging), add auth + a secret first.
     expose:
       - "6379" # internal only — the SignalR backplane, not a public service
 

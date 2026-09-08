@@ -26,6 +26,14 @@ public class InMemoryTransactionStoreTests
             Timestamp = timestamp ?? DateTimeOffset.UtcNow,
         };
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void Constructor_NonPositiveRetentionCap_Throws(int invalidCap)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new InMemoryTransactionStore(invalidCap));
+    }
+
     [Fact]
     public void Add_ThenSnapshot_TransactionIsRetrievable()
     {
