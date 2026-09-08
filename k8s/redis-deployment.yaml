@@ -1,0 +1,32 @@
+# ADR 0001 (docs/adr/0001-distributed-sync-redis-backplane.md): the SignalR
+# backplane that lets all backend pods share broadcasts. A single replica is
+# intentional here — Redis itself is not the thing being scaled or made
+# highly-available in this MVP; only the backend's stateless pods are.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  labels:
+    app: redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          ports:
+            - containerPort: 6379
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi

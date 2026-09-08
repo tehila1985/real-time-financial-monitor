@@ -1,0 +1,13 @@
+# ClusterIP: internal only. Name "redis" matches backend-deployment.yaml's
+# Redis__ConnectionString and docker-compose.yml's service name.
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+spec:
+  type: ClusterIP
+  selector:
+    app: redis
+  ports:
+    - port: 6379
+      targetPort: 6379

@@ -26,6 +26,8 @@ spec:
               value: "Production"
             - name: Storage__RetentionCap
               value: "1000"
+            - name: Redis__ConnectionString
+              value: "redis:6379" # ADR 0001 — SignalR backplane across replicas
             # Cors__AllowedOrigin deliberately not set here — see §18/§19: the
             # frontend's nginx reverse-proxies everything, so there are no
             # cross-origin requests in this deployment at all.

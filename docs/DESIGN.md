@@ -126,7 +126,7 @@ real-time-financial-monitor/
 ├── k8s/
 │   ├── backend-deployment.yaml   backend-service.yaml
 │   ├── frontend-deployment.yaml  frontend-service.yaml
-│   └── (if §20 is implemented) redis-deployment.yaml / redis-service.yaml
+│   └── redis-deployment.yaml     redis-service.yaml       ← ADR 0001, implemented (§20/§22 Phase 8)
 ├── scripts/
 │   └── burst-test.sh                              ← moved out of the product UI (§15)
 ├── docs/
@@ -479,6 +479,8 @@ Only `deployment.yaml` + `service.yaml` per component — no `ConfigMap`/`Secret
 | `backend-service.yaml` | — | 80→8080 | — | — | **ClusterIP** (internal only — see §18's reverse-proxy decision) |
 | `frontend-deployment.yaml` | 2 | 8080 | — | `GET /` | — |
 | `frontend-service.yaml` | — | 80→8080 | — | — | **NodePort** (reachable without an Ingress controller, e.g. on minikube/kind) |
+| `redis-deployment.yaml` | 1 | 6379 | — | — | — |
+| `redis-service.yaml` | — | 6379→6379 | — | — | **ClusterIP** (internal only — the SignalR backplane, ADR 0001) |
 
 Note what's deliberately **absent** from the backend's env: `Cors__AllowedOrigin`. Per §18, the reverse proxy means this deployment has no cross-origin requests to configure at all — the CORS policy stays registered in code with its local-dev default, simply inert in production. Listing it here would have quietly contradicted the §18 decision.
 
@@ -493,8 +495,8 @@ See **[ADR 0001](adr/0001-distributed-sync-redis-backplane.md)** for the full an
 
 - **Problem:** a client connected to Pod A never sees a broadcast originating on Pod B, because each pod's SignalR connection registry is local and isolated.
 - **Decision:** SignalR's official Redis backplane (`AddStackExchangeRedis`) — chosen over a general message broker (over-engineered) and shared-DB polling (worse on every axis). Full comparison in the ADR.
-- **Must implement:** the written architecture description (this section + the ADR).
-- **Recommended, time-boxed:** the actual code + `k8s/redis-deployment.yaml`/`redis-service.yaml`.
+- **Implemented** (not just documented — see Phase 8 below): `Redis:ConnectionString` config wires `AddStackExchangeRedis` conditionally (only when set, so local `dotnet run` and the `WebApplicationFactory` integration tests keep working without a real Redis instance); `redis` added to `docker-compose.yml` and `k8s/redis-deployment.yaml`/`redis-service.yaml`, consistently in both, per the ADR's own "no partial implementation" requirement.
+- **Verified, not just wired:** with two genuinely separate backend containers sharing one Redis, a SignalR client connected *only* to instance A received a broadcast triggered by a POST sent *only* to instance B — the exact scenario this section describes, now proven fixed rather than just argued for.
 - **Documentation only:** session affinity (sticky sessions) — complementary to connection *stability*, not a substitute for this fix; out of scope since no Ingress was introduced.
 
 ## 21. ADRs
@@ -514,7 +516,7 @@ TDD is embedded into the backend phases — tests are written before the corresp
 | 5 | Frontend Pages & Components | 4 | `/add` (form + single generator button), `/monitor` (snapshot+live+filter+badges+connection indicator) | Manual E2E: two tabs, live updates work; `scripts/burst-test.sh` run against it doesn't freeze the UI |
 | 6 | Dockerization | 3, 5 | Backend/frontend `Dockerfile`s, `nginx.conf` (with WS upgrade headers), `docker-compose.yml` | `docker compose up` reproduces the same E2E flow |
 | 7 | Kubernetes | 6 | 4 manifests per §19 | Dry-run validates; multi-pod issue is reproducible |
-| 8 | Distributed Sync + ADR | 7 | ADR (already written); Redis backplane code (time-boxed) | ADR exists regardless; if implemented, the Phase 7 reproduction now resolves correctly |
+| 8 | Distributed Sync + ADR | 7 | ADR (already written); Redis backplane implemented — conditional wiring in `Program.cs`, `redis` added to `docker-compose.yml` and `k8s/` | **Done.** Verified with two separate backend containers sharing one Redis: a client connected only to instance A received a broadcast POSTed only to instance B |
 | 9 | UI Animations (optional) | 5 | Entrance/status-transition animation | Burst test from Phase 5 still doesn't freeze |
 | 10 | README & final docs | all | Setup/run instructions, links to this document, the ADR, and `scripts/burst-test.sh` | A new clone can run the system end-to-end from the README alone |
 
@@ -553,7 +555,7 @@ Phase 1 (Storage) ──▶ Phase 2 (Service) ──▶ Phase 3 (API)
 | Performance | `scripts/burst-test.sh` doesn't freeze the UI (manual + hook-level batching test) |
 | Tests | Full §17 matrix green, running automatically |
 | Docker | Both images build; Alpine-based; `docker compose up` works |
-| Kubernetes | All 4 manifests pass dry-run; multi-pod problem reproducible; backend stays `ClusterIP`-only |
+| Kubernetes | All 6 manifests (backend/frontend/redis × deployment+service) are valid; multi-pod problem is fixed and verified, not just reproducible; backend and redis stay `ClusterIP`-only |
 | Architecture | Every remaining abstraction traces to a stated justification (§9, §26) |
 | Documentation | README, this document, and ADR 0001 present and current |
 
@@ -593,7 +595,7 @@ This section documents an explicit second pass over the entire design, asking of
 | FluentAssertions | **Was: an unjustified dependency** | **Removed** — xUnit's built-in `Assert` suffices (§17) |
 | Docker Compose | **Useful** | Kept — the only practical way to verify the Docker bonus before/without a real cluster |
 | K8s `replicas: 2`, resource limits, `/health` | **Bonus/Necessary (if pursuing K8s at all)** | Kept — each is a near-zero-cost line that directly demonstrates the concept it's there for |
-| Redis backplane | **Bonus** | Already correctly scoped: documentation mandatory, implementation time-boxed (§20) |
+| Redis backplane | **Bonus** | Implemented and verified (§20/§22 Phase 8) — decided with Tehila to implement now rather than leave time-boxed, once the MVP was solid |
 
 ## 27. Key Decisions — Interview Quick Reference
 
@@ -614,7 +616,7 @@ This section documents an explicit second pass over the entire design, asking of
 | Why isn't the burst-test control part of the app? | `/add` simulates an external system; a load-generator is test tooling, not a product feature — it lives in `scripts/burst-test.sh` instead. | §15 |
 | Why reverse-proxy through nginx instead of just using CORS? | It keeps the backend non-externally-reachable in Kubernetes (`ClusterIP` only) — a real architectural property, at the cost of one nginx config block. | §18 |
 | Why Alpine and not the more secure "chiseled" image? | Chiseled optimizes for a production threat model that doesn't apply to a non-deployed assessment, at the cost of losing a debug shell. | §18 |
-| How would you solve the multi-pod broadcast problem? | SignalR's official Redis backplane — `AddStackExchangeRedis`, one line of startup code, no changes to Controller/Service/Storage. | §20, ADR 0001 |
+| How would you solve the multi-pod broadcast problem? | SignalR's official Redis backplane — `AddStackExchangeRedis`, wired conditionally on a config value, no changes to Controller/Service/Storage. Implemented and verified (not just designed): two separate containers sharing one Redis, client on A receives a broadcast POSTed to B. | §20, ADR 0001 |
 | Why not Kafka/RabbitMQ for that? | It solves a different problem (durable event streaming) and would require hand-building the exact relay logic the Redis backplane already provides for free. | ADR 0001 |
 | Why only 2 Kubernetes manifests per component, no Ingress/ConfigMap? | None are justified at this scope — no sensitive config, and the assignment only asks for `deployment.yaml`/`service.yaml`. | §19 |
 | What would you do differently for a real production system? | Add persistence (or a real message log) for durability, actually implement the Redis backplane, add auth, and reconsider the retention/validation decisions against real product requirements rather than an assessment's literal scope. | §1, §26 |

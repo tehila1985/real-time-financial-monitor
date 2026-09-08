@@ -12,7 +12,18 @@ builder.Services.AddSingleton<IStorage>(new InMemoryTransactionStore(retentionCa
 builder.Services.AddSingleton<TransactionService>();
 
 builder.Services.AddControllers();
-builder.Services.AddSignalR();
+
+// Redis backplane (ADR 0001, docs/DESIGN.md §20): only wired when a connection
+// string is actually configured. This is not just a convenience — without it,
+// `dotnet run` locally and the WebApplicationFactory-based integration tests
+// (§17) would require a real Redis instance just to boot the app at all, for
+// a sync problem that doesn't exist with a single instance.
+var redisConnectionString = builder.Configuration["Redis:ConnectionString"];
+var signalRBuilder = builder.Services.AddSignalR();
+if (!string.IsNullOrWhiteSpace(redisConnectionString))
+{
+    signalRBuilder.AddStackExchangeRedis(redisConnectionString);
+}
 
 // CORS: local-dev-only concern (§18) — in production the frontend's nginx
 // reverse-proxies /api and /hubs, so there are no cross-origin requests to
