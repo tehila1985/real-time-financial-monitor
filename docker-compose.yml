@@ -1,0 +1,20 @@
+# Local verification of the Docker bonus (docs/DESIGN.md §18) before/without a
+# real K8s cluster. "backend" is deliberately the service name — nginx.conf
+# hardcodes it, and it should stay the same as the K8s Service name in Phase 7
+# so the same frontend image works unchanged in both environments.
+services:
+  backend:
+    build:
+      context: ./backend
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+    expose:
+      - "8080" # internal only — never published to the host, matching §18/§19
+
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "5180:8080" # host-side port is arbitrary; container stays 8080 either way
+    depends_on:
+      - backend
