@@ -1,0 +1,50 @@
+# See docs/DESIGN.md §19. replicas: 2 is deliberate — it reproduces the exact
+# multi-pod broadcast gap described in §20 / ADR 0001.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  labels:
+    app: backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      containers:
+        - name: backend
+          image: backend:latest # replace with a real registry/tag when actually deploying
+          ports:
+            - containerPort: 8080
+          env:
+            - name: ASPNETCORE_ENVIRONMENT
+              value: "Production"
+            - name: Storage__RetentionCap
+              value: "1000"
+            # Cors__AllowedOrigin deliberately not set here — see §18/§19: the
+            # frontend's nginx reverse-proxies everything, so there are no
+            # cross-origin requests in this deployment at all.
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 15

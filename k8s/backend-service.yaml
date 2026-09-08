@@ -1,0 +1,15 @@
+# ClusterIP: internal only, never exposed outside the cluster (docs/DESIGN.md
+# §18/§19). Name is deliberately "backend" — nginx.conf hardcodes this exact
+# hostname, and docker-compose.yml uses the same service name, so the same
+# frontend image works unchanged in both environments.
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+spec:
+  type: ClusterIP
+  selector:
+    app: backend
+  ports:
+    - port: 80
+      targetPort: 8080

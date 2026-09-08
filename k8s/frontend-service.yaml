@@ -1,0 +1,13 @@
+# NodePort: reachable without an Ingress controller (e.g. minikube/kind) —
+# docs/DESIGN.md §19. Swap for LoadBalancer/Ingress in a real cloud deployment.
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+spec:
+  type: NodePort
+  selector:
+    app: frontend
+  ports:
+    - port: 80
+      targetPort: 8080
