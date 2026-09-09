@@ -23,6 +23,11 @@ export function ConnectionStatus({ status }: { status: ConnectionState }) {
           with no user action needed (docs/DESIGN.md §16 bonus animation). */}
       <span className={`connection-status__dot${status === 'connected' ? ' connection-status__dot--live' : ''}`} />
       {LABELS[status]}
+      {status === 'disconnected' && (
+        <span style={{ marginLeft: 8, fontSize: '0.8rem', fontWeight: 400 }}>
+          — refresh the page to reconnect
+        </span>
+      )}
     </p>
   )
 }

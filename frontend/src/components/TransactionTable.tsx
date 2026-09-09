@@ -28,9 +28,15 @@ const TransactionRow = memo(function TransactionRow({ transaction }: { transacti
 
 export function TransactionTable({ transactions }: { transactions: Transaction[] }) {
   const visible = transactions.slice(0, MAX_VISIBLE_ROWS)
+  const isClipped = transactions.length > MAX_VISIBLE_ROWS
 
   return (
     <div className="transaction-table-wrapper">
+      {isClipped && (
+        <p className="transaction-table__count" role="status">
+          Showing {MAX_VISIBLE_ROWS} of {transactions.length}
+        </p>
+      )}
       <table className="transaction-table">
         <thead>
           <tr>

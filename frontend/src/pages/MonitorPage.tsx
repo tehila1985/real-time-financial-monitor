@@ -13,8 +13,8 @@ export function MonitorPage() {
 
       <ConnectionStatus status={connectionStatus} />
       {snapshotError && (
-        <p className="alert" role="alert">
-          Could not load existing transactions. New ones will still arrive live.
+        <p className="alert alert--warning" role="alert">
+          ⚠ Could not load existing transactions. New ones will still arrive live.
         </p>
       )}
       <FilterBar value={statusFilter} onChange={setStatusFilter} />

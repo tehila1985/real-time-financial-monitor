@@ -82,6 +82,11 @@ for why) - it's a standalone script:
 BASE_URL=http://localhost:5180 ./scripts/burst-test.sh 100
 ```
 
+> **Windows users:** `burst-test.sh` is a bash script. Run it inside
+> [WSL](https://learn.microsoft.com/en-us/windows/wsl/) or Git Bash.
+> Alternatively, use the Docker Compose stack (which runs Linux containers)
+> and run the script from within WSL targeting `http://localhost:5180`.
+
 Have `/monitor` open in a browser while it runs.
 
 ## Kubernetes
