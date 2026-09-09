@@ -32,34 +32,44 @@ export function TransactionForm() {
 
   return (
     <form onSubmit={handleSubmit}>
-      <label>
-        Amount
+      <h2 className="section-title">Manual entry</h2>
+
+      <div className="form-field">
+        <label htmlFor="tx-amount">Amount</label>
         <input
+          id="tx-amount"
           type="number"
           step="0.01"
           value={amount}
           onChange={(e) => setAmount(e.target.value)}
           required
         />
-      </label>
-      <label>
-        Currency
-        <input value={currency} onChange={(e) => setCurrency(e.target.value)} required />
-      </label>
-      <label>
-        Status
-        <select value={status} onChange={(e) => setStatus(e.target.value as TransactionStatus)}>
+      </div>
+
+      <div className="form-field">
+        <label htmlFor="tx-currency">Currency</label>
+        <input id="tx-currency" value={currency} onChange={(e) => setCurrency(e.target.value)} required />
+      </div>
+
+      <div className="form-field">
+        <label htmlFor="tx-status">Status</label>
+        <select id="tx-status" value={status} onChange={(e) => setStatus(e.target.value as TransactionStatus)}>
           {TRANSACTION_STATUSES.map((s) => (
             <option key={s} value={s}>
               {s}
             </option>
           ))}
         </select>
-      </label>
-      <button type="submit" disabled={submitState === 'sending'}>
+      </div>
+
+      <button type="submit" className="btn btn-primary" disabled={submitState === 'sending'}>
         Submit transaction
       </button>
-      {submitState === 'error' && <p role="alert">Failed to submit transaction.</p>}
+      {submitState === 'error' && (
+        <p className="alert" role="alert">
+          Failed to submit transaction.
+        </p>
+      )}
     </form>
   )
 }

@@ -1,6 +1,12 @@
-import { describe, expect, it } from 'vitest'
+import { act, renderHook } from '@testing-library/react'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import * as api from '../api/transactionsApi'
+import * as hub from '../realtime/hubConnection'
 import type { Transaction } from '../types/transaction'
-import { mergeByIdNewestFirst } from './useTransactionFeed'
+import { mergeByIdNewestFirst, useTransactionFeed } from './useTransactionFeed'
+
+vi.mock('../api/transactionsApi')
+vi.mock('../realtime/hubConnection')
 
 function makeTransaction(overrides: Partial<Transaction> = {}): Transaction {
   return {
@@ -44,5 +50,58 @@ describe('mergeByIdNewestFirst', () => {
     expect(result).toHaveLength(1000)
     expect(result[0].transactionId).toBe('newest') // newest survives
     expect(result.some((t) => t.transactionId === 'old-999')).toBe(false) // oldest evicted
+  })
+})
+
+describe('useTransactionFeed reconnection backfill', () => {
+  // Regression test for a gap found in a fresh audit: withAutomaticReconnect()
+  // resumes the WebSocket after a drop, but nothing previously re-delivered
+  // whatever was broadcast while it was down. The fix re-fetches the snapshot
+  // specifically on a reconnecting -> connected transition — not on every
+  // status change, and not a second time on the initial connect.
+  let connectionStatus: hub.ConnectionState
+
+  beforeEach(() => {
+    connectionStatus = 'connected'
+    vi.mocked(hub.useTransactionHub).mockImplementation(() => connectionStatus)
+    vi.mocked(api.getTransactionsSnapshot).mockResolvedValue([])
+  })
+
+  it('fetches once on mount, again only after an actual reconnect', async () => {
+    const { rerender } = renderHook(() => useTransactionFeed())
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(api.getTransactionsSnapshot).toHaveBeenCalledTimes(1)
+
+    connectionStatus = 'reconnecting'
+    rerender()
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(api.getTransactionsSnapshot).toHaveBeenCalledTimes(1) // not yet — still down
+
+    connectionStatus = 'connected'
+    rerender()
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(api.getTransactionsSnapshot).toHaveBeenCalledTimes(2) // backfill on actual reconnect
+  })
+
+  it('does not re-fetch on the initial connecting -> connected transition', async () => {
+    connectionStatus = 'connecting'
+    const { rerender } = renderHook(() => useTransactionFeed())
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    connectionStatus = 'connected'
+    rerender()
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(api.getTransactionsSnapshot).toHaveBeenCalledTimes(1) // the one mount-time fetch only
   })
 })

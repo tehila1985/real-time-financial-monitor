@@ -20,7 +20,7 @@ export function FilterBar({
   onChange: (value: StatusFilter) => void
 }) {
   return (
-    <div role="group" aria-label="Filter by status">
+    <div className="filter-bar" role="group" aria-label="Filter by status">
       {OPTIONS.map((option) => (
         <button
           key={option}

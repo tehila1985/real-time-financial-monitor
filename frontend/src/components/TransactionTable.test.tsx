@@ -50,4 +50,11 @@ describe('TransactionTable', () => {
     expect(screen.queryByText('id-199')).toBeInTheDocument()
     expect(screen.queryByText('id-200')).not.toBeInTheDocument()
   })
+
+  it('applies the entrance-animation class to each row (Bonus 5)', () => {
+    render(<TransactionTable transactions={[makeTransaction({ transactionId: 'a' })]} />)
+
+    const [, dataRow] = screen.getAllByRole('row') // [header, data row]
+    expect(dataRow).toHaveClass('transaction-row')
+  })
 })

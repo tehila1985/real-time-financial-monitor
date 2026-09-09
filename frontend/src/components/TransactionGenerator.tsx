@@ -32,10 +32,15 @@ export function TransactionGenerator() {
 
   return (
     <div>
-      <button type="button" onClick={handleClick} disabled={state === 'sending'}>
+      <h2 className="section-title">Or generate one</h2>
+      <button type="button" className="btn btn-secondary" onClick={handleClick} disabled={state === 'sending'}>
         Generate mock transaction
       </button>
-      {state === 'error' && <p role="alert">Failed to send transaction.</p>}
+      {state === 'error' && (
+        <p className="alert" role="alert">
+          Failed to send transaction.
+        </p>
+      )}
     </div>
   )
 }

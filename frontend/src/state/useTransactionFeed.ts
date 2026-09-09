@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { getTransactionsSnapshot } from '../api/transactionsApi'
 import { useTransactionHub } from '../realtime/hubConnection'
 import type { Transaction } from '../types/transaction'
@@ -40,11 +40,16 @@ export function useTransactionFeed() {
   const [snapshotError, setSnapshotError] = useState(false)
   const { items: transactions, enqueue, seed } = useBatchedUpdates<Transaction>(mergeByIdNewestFirst)
 
-  useEffect(() => {
+  // Shared by the initial load and the reconnect-triggered refresh below —
+  // both need the same fetch/seed/report-failure steps, through the same
+  // merge-safe `seed()` (safe regardless of arrival order — see §10's fix).
+  const refreshSnapshot = useCallback(() => {
     let cancelled = false
     getTransactionsSnapshot()
       .then((snapshot) => {
-        if (!cancelled) seed(snapshot)
+        if (cancelled) return
+        setSnapshotError(false)
+        seed(snapshot)
       })
       .catch(() => {
         // Live updates still work once the hub connects even if this fails —
@@ -57,7 +62,23 @@ export function useTransactionFeed() {
     }
   }, [seed])
 
+  useEffect(() => refreshSnapshot(), [refreshSnapshot])
+
   const connectionStatus = useTransactionHub(enqueue)
+
+  // Backfill anything missed during a disconnect: `withAutomaticReconnect()`
+  // resumes the WebSocket, but nothing re-delivers what was broadcast while it
+  // was down — found in a fresh audit, not by design. Re-fetching through the
+  // same merge-safe `seed()` closes the gap without risking the seed race
+  // that fix already guards against.
+  const previousStatusRef = useRef(connectionStatus)
+  useEffect(() => {
+    const wasReconnecting = previousStatusRef.current === 'reconnecting'
+    previousStatusRef.current = connectionStatus
+    if (wasReconnecting && connectionStatus === 'connected') {
+      return refreshSnapshot()
+    }
+  }, [connectionStatus, refreshSnapshot])
 
   const filtered = useMemo(
     () => filterTransactions(transactions, statusFilter),

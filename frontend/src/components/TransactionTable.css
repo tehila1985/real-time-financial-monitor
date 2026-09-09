@@ -1,0 +1,91 @@
+/* Bonus 5 (docs/DESIGN.md §4): entrance animation for new rows.
+ *
+ * Only opacity + transform are animated — both are compositor-only
+ * properties (no layout/paint recalculation), which is what keeps this cheap
+ * even when many rows mount in the same burst (docs/DESIGN.md §16). Animating
+ * e.g. height or top instead would fight the exact NFR this project is built
+ * around.
+ *
+ * React's keyed reconciliation (key={transactionId}) means this only plays
+ * for a genuinely new row: an existing transaction that just moves position
+ * (newest-first re-sort) keeps its DOM node and never re-triggers the
+ * animation, since the node itself was never re-created.
+ */
+@keyframes transaction-row-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.transaction-row {
+  animation: transaction-row-enter 250ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .transaction-row {
+    animation: none;
+  }
+}
+
+/* Table structure */
+
+.transaction-table-wrapper {
+  overflow-x: auto; /* wide content scrolls inside, never the page itself */
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.transaction-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.transaction-table th {
+  text-align: left;
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-bg);
+  color: var(--color-text-muted);
+  font-weight: 600;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+
+.transaction-table td {
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+
+.transaction-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.transaction-table tbody tr:hover {
+  background: var(--color-bg);
+}
+
+.transaction-table__id {
+  font-family: ui-monospace, Consolas, monospace;
+  color: var(--color-text-muted);
+  font-size: 0.85em;
+}
+
+.transaction-table__timestamp {
+  color: var(--color-text-muted);
+}
+
+.transaction-table__empty {
+  text-align: center;
+  color: var(--color-text-muted);
+  padding: var(--space-8) var(--space-4);
+}

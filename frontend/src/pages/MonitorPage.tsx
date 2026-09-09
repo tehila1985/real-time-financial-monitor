@@ -7,11 +7,15 @@ export function MonitorPage() {
   const { transactions, statusFilter, setStatusFilter, connectionStatus, snapshotError } = useTransactionFeed()
 
   return (
-    <main>
+    <main className="page">
       <h1>Live Dashboard</h1>
+      <p className="page-subtitle">Transactions appear here the moment they're ingested.</p>
+
       <ConnectionStatus status={connectionStatus} />
       {snapshotError && (
-        <p role="alert">Could not load existing transactions. New ones will still arrive live.</p>
+        <p className="alert" role="alert">
+          Could not load existing transactions. New ones will still arrive live.
+        </p>
       )}
       <FilterBar value={statusFilter} onChange={setStatusFilter} />
       <TransactionTable transactions={transactions} />

@@ -3,11 +3,16 @@ import { TransactionGenerator } from '../components/TransactionGenerator'
 
 export function AddTransactionPage() {
   return (
-    <main>
+    <main className="page">
       <h1>Add Transaction</h1>
-      <p>Simulates an external system feeding transactions into the engine.</p>
-      <TransactionForm />
-      <TransactionGenerator />
+      <p className="page-subtitle">Simulates an external system feeding transactions into the engine.</p>
+
+      <div className="card">
+        <TransactionForm />
+      </div>
+      <div className="card">
+        <TransactionGenerator />
+      </div>
     </main>
   )
 }

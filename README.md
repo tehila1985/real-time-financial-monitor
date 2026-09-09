@@ -9,6 +9,15 @@ chosen — lives in [`docs/DESIGN.md`](docs/DESIGN.md).** This README is only "h
 run it"; that document is the "why," including a fast Q&A index (§27) and the
 [distributed-sync ADR](docs/adr/0001-distributed-sync-redis-backplane.md).
 
+**MVP vs. bonus:** the ingestion API, real-time broadcast, in-memory storage, both
+frontend routes, and the test suites are the required MVP. Everything under
+"Running with Docker Compose," "Kubernetes," and the distributed-sync ADR is bonus
+work — all of it implemented and verified, not just described (see
+[`DESIGN.md §4`](docs/DESIGN.md#4-scope--non-scope-summary) for the exact split).
+The dashboard's row-entrance and status-color transitions (`TransactionTable.css`)
+are the "Enhanced UI Experience" bonus — plain CSS, animating only `opacity`/
+`transform` so it stays cheap under a burst (see `DESIGN.md §16`).
+
 ## Prerequisites
 
 - [.NET 8 SDK](https://dotnet.microsoft.com/download) (or a newer SDK that can target `net8.0`)

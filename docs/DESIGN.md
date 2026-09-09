@@ -49,7 +49,7 @@ Authentication/authorization, an external persistent database, an actually-deplo
 - **MVP (Must):** ingestion API, real-time broadcast, thread-safe in-memory storage, two frontend routes, responsive UI under burst load, status UX, client-side filtering, TDD unit tests.
 - **Bonus — Must document, may implement:** distributed synchronization across replicas (ADR is mandatory; code is time-boxed/recommended).
 - **Bonus — Recommended:** Dockerfiles + Kubernetes manifests.
-- **Bonus — Optional, lowest priority:** UI entrance/status-transition animations.
+- **Bonus — Optional, lowest priority:** UI entrance/status-transition animations. **Implemented** (§16) — was deprioritized initially, done once everything above it was solid.
 
 ## 5. Architecture Overview
 
@@ -119,7 +119,8 @@ real-time-financial-monitor/
 │   │   ├── state/{useTransactionFeed,filterTransactions}.ts(+.test.ts)
 │   │   ├── types/transaction.ts
 │   │   ├── pages/{AddTransactionPage,MonitorPage}/
-│   │   ├── components/{TransactionForm,TransactionGenerator,TransactionTable,StatusBadge,FilterBar,ConnectionStatus}/
+│   │   ├── components/{TransactionForm,TransactionGenerator,TransactionTable(+.css),StatusBadge,FilterBar,ConnectionStatus}/
+│   │   ├── utils/generateId.ts                    ← secure-context-safe fallback (§14)
 │   │   └── App.tsx
 │   ├── nginx.conf
 │   └── Dockerfile
@@ -251,6 +252,12 @@ Push-only. No client-invokable methods. Clients subscribe to a single event, `Tr
 > **Why not raw WebSockets:** it's not that it's impossible to do correctly — it's that doing it correctly means re-implementing (and re-testing) something the framework already provides, for no benefit the assignment asks for. Raw WebSockets would be a reasonable choice only if there were a requirement SignalR couldn't satisfy (e.g., a non-JSON binary protocol) — there isn't one here.
 > **If asked "could you have done it with raw WebSockets":** yes — describe the connection-registry thread-safety problem above, and explain that SignalR was chosen specifically to eliminate that risk rather than manage it.
 
+> **Decision: on reconnect, the frontend re-fetches the snapshot and re-seeds it (`useTransactionFeed`) rather than relying solely on `withAutomaticReconnect()`.**
+> **The gap this closes, found in a fresh pre-submission audit:** `withAutomaticReconnect()` resumes the WebSocket after a drop, but resuming the *connection* isn't the same as recovering the *messages*. Nothing re-delivers whatever was broadcast while a client was disconnected — the UI would flip back to "Connected" while silently missing transactions, which is a real message-consistency gap in a tool whose whole purpose is showing agents accurate live data.
+> **Why re-fetching the snapshot, not a message-replay/outbox mechanism:** a replay log is solving a durability problem this system doesn't have elsewhere (§13 already accepts in-memory, restart-loses-everything storage) — re-fetching the current snapshot is the same "just ask for current state" idea `/monitor`'s initial load already uses, applied a second time at the one other moment it's needed.
+> **Why this doesn't reintroduce the seed race:** it reuses the exact same merge-safe `seed()` fixed for the initial-load race (§10) — a snapshot arriving in any order relative to live updates is already handled, so triggering it a second time (on reconnect) adds no new risk.
+> **How the "genuine reconnect" moment is detected:** a ref tracks the previous connection state; the refresh fires only on a `reconnecting` → `connected` transition, not on the initial `connecting` → `connected` (which already gets its own mount-time fetch) and not on every render.
+
 ## 12. Concurrency & Thread Safety
 
 ### 12.1 Concurrent writes to storage
@@ -356,6 +363,11 @@ Pages (routes)
 
 Stack: Vite, React Router, `@microsoft/signalr` (official client), native `fetch` (no axios — unjustified for two calls).
 
+> **Decision: `TransactionForm`/`TransactionGenerator` generate ids via `utils/generateId.ts`, not `crypto.randomUUID()` directly.**
+> **The gap this closes, found in a fresh pre-submission audit:** `crypto.randomUUID()` only exists in "secure contexts" — HTTPS, or the literal hostname `localhost`. Every environment this was tested in (`localhost:5173`, `localhost:5180` via Docker Compose) satisfies that. The K8s bonus deployment (§19) is reached via `http://<node-ip>:<nodePort>` — plain HTTP, not `localhost` — where `crypto.randomUUID` is `undefined`, and both pages would throw on submit.
+> **Why a fallback instead of requiring HTTPS everywhere:** requiring TLS termination purely to keep a client-side reference id generator working would be solving the wrong problem at the wrong layer, and contradicts §18's own reasoning for not adding TLS to this stack at all.
+> **Why the fallback isn't cryptographically secure:** it doesn't need to be — this id is a client-side reference for a simulated system, not a security-sensitive value. Reaching for a "more secure" fallback here would itself be over-engineering.
+
 ## 15. State Management
 
 `useTransactionFeed` is the single state-owning hook for `/monitor`. Incoming SignalR messages are buffered outside React state and flushed on a `requestAnimationFrame` cadence — this is the core answer to §16.
@@ -403,6 +415,13 @@ Additional measures:
 > **Decision: `React.memo` and top-200 rendering are kept as low-cost, high-signal additions — not because they're proven necessary, but because they're nearly free and demonstrate understanding of React re-render behavior.**
 > **Honest caveat for the interview:** it's plausible the buffering above alone would already be enough to keep the UI responsive at this scale; these two are "cheap insurance + demonstrates the underlying concept," not "required to pass the stated bar." That distinction is worth stating explicitly if asked "did you measure whether you needed this."
 
+> **Decision: Bonus 5 (row-entrance + status-transition animations) is plain CSS (`TransactionTable.css`), animating only `opacity`/`transform`, not a component library (Framer Motion, react-spring).**
+> **Alternatives considered:** an animation library, which would also make exit animations and orchestration easier if ever needed.
+> **Why this one:** `opacity` and `transform` are compositor-only properties — animating them doesn't trigger layout or paint recalculation, so the cost stays flat regardless of how many rows animate in the same burst. Animating a layout-affecting property instead (e.g. `height`, `top`) would directly fight NFR3, the requirement this whole section exists for.
+> **Why not a library:** nothing here needs orchestration, staggering, or exit animations — a library would be a dependency added for capabilities this feature doesn't use.
+> **Why it doesn't replay on every re-sort:** rows are keyed by `transactionId` (§16 above); React's reconciliation moves an existing DOM node when its position changes rather than destroying and recreating it, so the CSS entrance animation — which fires on element creation, not on re-render — only plays for a genuinely new transaction, never for one that's just shifted position in the sorted list.
+> **Accessibility:** the entrance animation respects `prefers-reduced-motion: reduce`; the status-color transition (a plain `transition`, not a `@keyframes` animation) is left as-is under reduced motion, consistent with WCAG guidance focusing on movement rather than color easing.
+
 ## 17. Testing Strategy
 
 | Tooling | Backend | Frontend |
@@ -422,21 +441,28 @@ TDD is applied to `IStorage` and `TransactionService`: tests are written to spec
 | Area | Scenario | Expected Result |
 |---|---|---|
 | Storage | Add a transaction | Retrievable via snapshot |
+| Storage | Non-positive retention cap in the constructor | Throws `ArgumentOutOfRangeException` |
 | Storage | Exceed retention cap | Oldest (arrival order) evicted, count == cap |
 | Storage | GetSnapshot | Sorted by `Timestamp` descending, no side effects |
 | Storage (concurrency) | N parallel writes, distinct IDs, cap < N | count == cap, no exception |
 | Storage (concurrency) | Parallel writes, same ID | No exception; final value is one of the written values |
 | Storage (concurrency) | Parallel write + snapshot | No exception; every snapshot internally consistent |
 | Service | Any valid transaction | `Storage.Add` called; broadcasts `TransactionReceived` with matching payload |
+| Service | Storage write succeeds, broadcast throws | Call still completes without throwing; storage write already happened |
 | API (integration) | Valid POST | `201` + body; visible in subsequent GET |
 | API (integration) | Malformed POST (bad GUID/enum/missing field) | `400` + `ValidationProblemDetails` |
 | API (integration) | GET when empty | `200` + `[]` |
 | Frontend | `useTransactionFeed` receives N fast messages | State flush count ≪ N |
+| Frontend | `mergeByIdNewestFirst` beyond the retention cap | Oldest evicted, most recent kept (§13's frontend-side cap) |
+| Frontend | Reconnect after a drop (`reconnecting` → `connected`) | Snapshot re-fetched exactly once; not on initial connect, not on every render |
+| Frontend | `hubConnection`'s connection-state transitions | `connecting`/`connected`/`reconnecting`/`disconnected` all reachable and correctly triggered |
 | Frontend | `filterTransactions(list, "Failed")` | Only Failed entries returned |
-| Frontend | `StatusBadge` per status | Correct color/label rendered |
+| Frontend | `StatusBadge` / `ConnectionStatus` per state | Correct color/label rendered |
+| Frontend | `generateId()` with/without `crypto.randomUUID` available | Valid UUID-shaped string either way |
+| Frontend | `TransactionTable` row | Carries the entrance-animation class |
 | Frontend | Submit `/add` form | API client called with matching payload |
 
-> Note: the earlier matrix had rows for "upsert of existing ID" and "Service broadcasts Updated vs Created" — these are removed along with the upsert feature (§10). The matrix is now smaller *because the feature surface is smaller*, not because coverage was cut.
+> Note: the earlier matrix had rows for "upsert of existing ID" and "Service broadcasts Updated vs Created" — these are removed along with the upsert feature (§10). Rows added since then (guard clause, broadcast-failure, reconnect backfill, connection state machine, retention cap, `generateId`, animation class) came out of the code-review and audit passes documented in §26.
 
 Concurrency tests assert **invariants** (counts, "no exception," "consistent"), never exact interleaving order — this keeps them deterministic despite exercising real `Task.WhenAll` concurrency.
 
@@ -597,6 +623,8 @@ This section documents an explicit second pass over the entire design, asking of
 | Docker Compose | **Useful** | Kept — the only practical way to verify the Docker bonus before/without a real cluster |
 | K8s `replicas: 2`, resource limits, `/health` | **Bonus/Necessary (if pursuing K8s at all)** | Kept — each is a near-zero-cost line that directly demonstrates the concept it's there for |
 | Redis backplane | **Bonus** | Implemented and verified (§20/§22 Phase 8) — decided with Tehila to implement now rather than leave time-boxed, once the MVP was solid |
+| Reconnection snapshot backfill | **Was: a real gap, found in a fresh audit** | **Added** (§11) — reuses the existing merge-safe `seed()`, no new mechanism |
+| UI entrance/status animations | **Bonus, was deprioritized** | **Implemented** (§16) — plain CSS, compositor-only properties, no library added |
 
 ## 27. Key Decisions — Interview Quick Reference
 
@@ -622,3 +650,5 @@ This section documents an explicit second pass over the entire design, asking of
 | Does the Redis backplane fully solve the multi-pod problem? | No — it synchronizes only the live broadcast. `IStorage` is still a separate instance per pod, so `GET /api/transactions` can return different results depending on which pod handles it. Fixing that needs shared storage, a bigger change than this ADR is scoped to. | ADR 0001 ("Scope") |
 | Why only 2 Kubernetes manifests per component, no Ingress/ConfigMap? | None are justified at this scope — no sensitive config, and the assignment only asks for `deployment.yaml`/`service.yaml`. | §19 |
 | What would you do differently for a real production system? | Add real persistence (the Redis backplane is implemented, but `IStorage` itself is still unsynchronized per pod — see ADR 0001's "Scope" section), add auth, and reconsider the retention/validation decisions against real product requirements rather than an assessment's literal scope. | §1, §20, §26, ADR 0001 |
+| Can a client miss a transaction? | Only during an active disconnect — and even then, reconnecting re-fetches the snapshot and merges it in, so nothing is permanently lost. Found and fixed in a fresh audit; not caught earlier because it only shows up on an actual disconnect. | §11 |
+| Are the bonus animations going to jank under a burst of 100? | No — only `opacity`/`transform` are animated, both compositor-only properties that skip layout/paint, so the cost doesn't scale with row count the way animating `height` or `top` would. | §16 |
