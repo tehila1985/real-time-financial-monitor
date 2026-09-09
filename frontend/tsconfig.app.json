@@ -16,6 +16,12 @@
     "noEmit": true,
     "jsx": "react-jsx",
 
+    /* Type safety — missing from this project's tsconfig entirely until now;
+       without it, TypeScript silently allows implicit `any`, unchecked
+       null/undefined access, and loose function-type variance, giving up
+       most of what "React + TypeScript" is supposed to buy over plain JS. */
+    "strict": true,
+
     /* Linting */
     "noUnusedLocals": true,
     "noUnusedParameters": true,

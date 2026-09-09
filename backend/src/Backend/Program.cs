@@ -58,7 +58,14 @@ builder.Services.AddCors(options =>
 });
 
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddSwaggerGen(options =>
+{
+    // Surfaces the XML doc comments already written on the controller/models
+    // (Backend.csproj's GenerateDocumentationFile) in the Swagger UI, instead
+    // of Swashbuckle's default bare method/type names.
+    var xmlFile = $"{System.Reflection.Assembly.GetExecutingAssembly().GetName().Name}.xml";
+    options.IncludeXmlComments(Path.Combine(AppContext.BaseDirectory, xmlFile));
+});
 
 // Global error handling (§9): unhandled exceptions become a 500 ProblemDetails,
 // no stack traces leaked. Malformed/incomplete request bodies never reach here —

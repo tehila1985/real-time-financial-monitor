@@ -4,6 +4,14 @@
     <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- Generated purely so Swagger can surface the XML doc comments that
+         already exist throughout the codebase — not a mandate that every
+         public member gets one. CS1591 (missing XML comment) would otherwise
+         flag every undocumented public member (record properties, enum
+         values, the Program partial class) with a warning that adds noise
+         without adding documentation value; see docs/DESIGN.md §10. -->
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
