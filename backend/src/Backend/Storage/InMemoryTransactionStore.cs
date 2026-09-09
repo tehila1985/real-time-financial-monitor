@@ -55,7 +55,11 @@ public sealed class InMemoryTransactionStore : IStorage
             copy = new List<Transaction>(_byId.Values);
         }
 
-        copy.Sort(static (a, b) => b.Timestamp.CompareTo(a.Timestamp));
-        return copy;
+        // `List<T>.Sort` is explicitly documented as unstable (introsort) — two
+        // transactions with the exact same Timestamp (plausible under a burst,
+        // §16) could swap relative order between calls with no data change at
+        // all. `OrderByDescending` is a stable sort, so ties keep a consistent
+        // relative order instead of visibly shuffling on the dashboard.
+        return copy.OrderByDescending(t => t.Timestamp).ToList();
     }
 }

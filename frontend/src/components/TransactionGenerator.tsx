@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
 import { postTransaction } from '../api/transactionsApi'
+import { useAutoResettingState } from '../state/useAutoResettingState'
 import { TRANSACTION_STATUSES, type Transaction } from '../types/transaction'
 import { generateId } from '../utils/generateId'
 
@@ -18,23 +18,15 @@ function randomTransaction(): Transaction {
 }
 
 export function TransactionGenerator() {
-  const [state, setState] = useState<'idle' | 'sending' | 'success' | 'error'>('idle')
-
-  // Same rationale as TransactionForm: clear the pending reset on unmount.
-  const resetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  useEffect(() => {
-    return () => {
-      if (resetTimeoutRef.current !== null) clearTimeout(resetTimeoutRef.current)
-    }
-  }, [])
+  const [state, setState, setStateWithAutoReset] = useAutoResettingState<
+    'idle' | 'sending' | 'success' | 'error'
+  >('idle', 'idle')
 
   async function handleClick() {
     setState('sending')
     try {
       await postTransaction(randomTransaction())
-      setState('success')
-      resetTimeoutRef.current = setTimeout(() => setState('idle'), 3000)
+      setStateWithAutoReset('success')
     } catch {
       setState('error')
     }

@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using Backend.Models;
+using Backend.Tests.TestSupport;
 using Microsoft.AspNetCore.Mvc.Testing;
 
 namespace Backend.Tests.Api;
@@ -22,19 +23,10 @@ public class TransactionsApiTests : IDisposable
         _client = _factory.CreateClient();
     }
 
-    private static Transaction MakeTransaction() => new()
-    {
-        TransactionId = Guid.NewGuid(),
-        Amount = 100m,
-        Currency = "USD",
-        Status = TransactionStatus.Pending,
-        Timestamp = DateTimeOffset.UtcNow,
-    };
-
     [Fact]
     public async Task Post_ValidTransaction_Returns201AndIsVisibleInSubsequentGet()
     {
-        var transaction = MakeTransaction();
+        var transaction = TransactionFactory.Create();
 
         var postResponse = await _client.PostAsJsonAsync("/api/transactions", transaction);
 
@@ -108,11 +100,11 @@ public class TransactionsApiTests : IDisposable
 
         for (var i = 0; i < 3; i++)
         {
-            var response = await client.PostAsJsonAsync("/api/transactions", MakeTransaction());
+            var response = await client.PostAsJsonAsync("/api/transactions", TransactionFactory.Create());
             Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         }
 
-        var limited = await client.PostAsJsonAsync("/api/transactions", MakeTransaction());
+        var limited = await client.PostAsJsonAsync("/api/transactions", TransactionFactory.Create());
 
         Assert.Equal(HttpStatusCode.TooManyRequests, limited.StatusCode);
     }
@@ -127,8 +119,8 @@ public class TransactionsApiTests : IDisposable
             .UseSetting("RateLimiting:WindowSeconds", "60"));
         using var client = factory.CreateClient();
 
-        await client.PostAsJsonAsync("/api/transactions", MakeTransaction());
-        var secondPost = await client.PostAsJsonAsync("/api/transactions", MakeTransaction());
+        await client.PostAsJsonAsync("/api/transactions", TransactionFactory.Create());
+        var secondPost = await client.PostAsJsonAsync("/api/transactions", TransactionFactory.Create());
         Assert.Equal(HttpStatusCode.TooManyRequests, secondPost.StatusCode); // limit is exhausted...
 
         var getResponse = await client.GetAsync("/api/transactions"); // ...but GET is unaffected

@@ -2,6 +2,7 @@ using Backend.Hubs;
 using Backend.Models;
 using Backend.Services;
 using Backend.Storage;
+using Backend.Tests.TestSupport;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
@@ -21,15 +22,6 @@ namespace Backend.Tests.Services;
 /// </summary>
 public class TransactionServiceTests
 {
-    private static Transaction MakeTransaction() => new()
-    {
-        TransactionId = Guid.NewGuid(),
-        Amount = 100m,
-        Currency = "USD",
-        Status = TransactionStatus.Pending,
-        Timestamp = DateTimeOffset.UtcNow,
-    };
-
     private static (Mock<IStorage> Storage, Mock<IClientProxy> ClientProxy, TransactionService Service) CreateSut()
     {
         var storage = new Mock<IStorage>();
@@ -54,7 +46,7 @@ public class TransactionServiceTests
     public async Task ProcessAsync_StoresTheTransaction()
     {
         var (storage, _, service) = CreateSut();
-        var transaction = MakeTransaction();
+        var transaction = TransactionFactory.Create();
 
         await service.ProcessAsync(transaction);
 
@@ -65,7 +57,7 @@ public class TransactionServiceTests
     public async Task ProcessAsync_BroadcastsTransactionReceivedWithTheTransactionAsPayload()
     {
         var (_, clientProxy, service) = CreateSut();
-        var transaction = MakeTransaction();
+        var transaction = TransactionFactory.Create();
 
         await service.ProcessAsync(transaction);
 
@@ -81,7 +73,7 @@ public class TransactionServiceTests
         // Locks in §12.4: the storage write must complete (and its lock be
         // released) before the async broadcast is awaited.
         var (storage, clientProxy, service) = CreateSut();
-        var transaction = MakeTransaction();
+        var transaction = TransactionFactory.Create();
         var callOrder = new List<string>();
 
         storage.Setup(s => s.Add(It.IsAny<Transaction>()))
@@ -103,7 +95,7 @@ public class TransactionServiceTests
         // already-persisted transaction into a caller-visible failure (see the
         // XML doc on ProcessAsync for the full reasoning).
         var (storage, clientProxy, service) = CreateSut();
-        var transaction = MakeTransaction();
+        var transaction = TransactionFactory.Create();
 
         clientProxy
             .Setup(p => p.SendCoreAsync(It.IsAny<string>(), It.IsAny<object?[]>(), It.IsAny<CancellationToken>()))
@@ -113,5 +105,22 @@ public class TransactionServiceTests
 
         Assert.Null(exception);
         storage.Verify(s => s.Add(transaction), Times.Once);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_BroadcastCancelled_PropagatesTheCancellationInsteadOfLoggingIt()
+    {
+        // Found in code review: the broad catch above must not conflate a
+        // graceful-shutdown cancellation with a genuine broadcast failure —
+        // only the latter should be swallowed-and-logged.
+        var (storage, clientProxy, service) = CreateSut();
+        var transaction = TransactionFactory.Create();
+
+        clientProxy
+            .Setup(p => p.SendCoreAsync(It.IsAny<string>(), It.IsAny<object?[]>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new OperationCanceledException("simulated shutdown"));
+
+        await Assert.ThrowsAsync<OperationCanceledException>(() => service.ProcessAsync(transaction));
+        storage.Verify(s => s.Add(transaction), Times.Once); // the write still already happened
     }
 }

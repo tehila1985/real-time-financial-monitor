@@ -49,7 +49,13 @@ public sealed class TransactionService
         {
             await _hubContext.Clients.All.SendAsync(TransactionReceivedEvent, transaction);
         }
-        catch (Exception ex)
+        // Excludes OperationCanceledException (found in code review): a
+        // graceful shutdown cancelling an in-flight broadcast is expected,
+        // normal behavior, not a broadcast failure — logging it as a Warning
+        // would misrepresent a clean shutdown as something having gone wrong.
+        // Letting it propagate here matches how the rest of ASP.NET Core
+        // treats cancellation during shutdown.
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogWarning(
                 ex,

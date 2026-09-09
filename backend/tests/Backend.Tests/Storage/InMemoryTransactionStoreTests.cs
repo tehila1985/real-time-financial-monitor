@@ -1,5 +1,6 @@
 using Backend.Models;
 using Backend.Storage;
+using Backend.Tests.TestSupport;
 
 namespace Backend.Tests.Storage;
 
@@ -12,20 +13,6 @@ namespace Backend.Tests.Storage;
 /// </summary>
 public class InMemoryTransactionStoreTests
 {
-    private static Transaction MakeTransaction(
-        Guid? id = null,
-        DateTimeOffset? timestamp = null,
-        TransactionStatus status = TransactionStatus.Pending,
-        decimal amount = 100m,
-        string currency = "USD") => new()
-        {
-            TransactionId = id ?? Guid.NewGuid(),
-            Amount = amount,
-            Currency = currency,
-            Status = status,
-            Timestamp = timestamp ?? DateTimeOffset.UtcNow,
-        };
-
     [Theory]
     [InlineData(0)]
     [InlineData(-1)]
@@ -38,7 +25,7 @@ public class InMemoryTransactionStoreTests
     public void Add_ThenSnapshot_TransactionIsRetrievable()
     {
         var store = new InMemoryTransactionStore();
-        var transaction = MakeTransaction();
+        var transaction = TransactionFactory.Create();
 
         store.Add(transaction);
 
@@ -58,8 +45,8 @@ public class InMemoryTransactionStoreTests
     {
         var store = new InMemoryTransactionStore();
         var now = DateTimeOffset.UtcNow;
-        var older = MakeTransaction(timestamp: now.AddMinutes(-5));
-        var newer = MakeTransaction(timestamp: now);
+        var older = TransactionFactory.Create(timestamp: now.AddMinutes(-5));
+        var newer = TransactionFactory.Create(timestamp: now);
 
         // Added oldest-first, deliberately, to prove ordering is by Timestamp
         // (read-time), not by insertion/arrival order.
@@ -70,12 +57,33 @@ public class InMemoryTransactionStoreTests
     }
 
     [Fact]
+    public void GetSnapshot_WithTiedTimestamps_OrderIsStableAcrossRepeatedCalls()
+    {
+        // Regression test (found in code review): List<T>.Sort is documented
+        // as unstable — with identical Timestamps, repeated GetSnapshot() calls
+        // could return a different relative order with no underlying data
+        // change at all. Same Timestamp instance for both, to make the tie exact.
+        var store = new InMemoryTransactionStore();
+        var tiedTimestamp = DateTimeOffset.UtcNow;
+        var first = TransactionFactory.Create(timestamp: tiedTimestamp);
+        var second = TransactionFactory.Create(timestamp: tiedTimestamp);
+
+        store.Add(first);
+        store.Add(second);
+
+        var firstCall = store.GetSnapshot();
+        var secondCall = store.GetSnapshot();
+
+        Assert.Equal(firstCall, secondCall);
+    }
+
+    [Fact]
     public void Add_BeyondRetentionCap_EvictsOldestByArrivalOrder()
     {
         var store = new InMemoryTransactionStore(retentionCap: 2);
-        var first = MakeTransaction();
-        var second = MakeTransaction();
-        var third = MakeTransaction();
+        var first = TransactionFactory.Create();
+        var second = TransactionFactory.Create();
+        var third = TransactionFactory.Create();
 
         store.Add(first);
         store.Add(second);
@@ -96,9 +104,9 @@ public class InMemoryTransactionStoreTests
         // eviction slot.
         var store = new InMemoryTransactionStore(retentionCap: 2);
         var id = Guid.NewGuid();
-        var first = MakeTransaction(id: id, status: TransactionStatus.Pending);
+        var first = TransactionFactory.Create(id: id, status: TransactionStatus.Pending);
         var updated = first with { Status = TransactionStatus.Completed };
-        var other = MakeTransaction();
+        var other = TransactionFactory.Create();
 
         store.Add(first);
         store.Add(updated);
@@ -116,7 +124,7 @@ public class InMemoryTransactionStoreTests
         const int cap = 100;
         const int total = 500;
         var store = new InMemoryTransactionStore(retentionCap: cap);
-        var transactions = Enumerable.Range(0, total).Select(_ => MakeTransaction()).ToList();
+        var transactions = Enumerable.Range(0, total).Select(_ => TransactionFactory.Create()).ToList();
 
         Parallel.ForEach(transactions, tx => store.Add(tx));
 
@@ -131,7 +139,7 @@ public class InMemoryTransactionStoreTests
         var store = new InMemoryTransactionStore();
         var id = Guid.NewGuid();
         var candidates = Enumerable.Range(0, 50)
-            .Select(i => MakeTransaction(id: id, amount: i))
+            .Select(i => TransactionFactory.Create(id: id, amount: i))
             .ToList();
 
         var exception = Record.Exception(() => Parallel.ForEach(candidates, tx => store.Add(tx)));
@@ -148,7 +156,7 @@ public class InMemoryTransactionStoreTests
         var store = new InMemoryTransactionStore(retentionCap: 200);
 
         var writers = Enumerable.Range(0, 300)
-            .Select(_ => (Action)(() => store.Add(MakeTransaction())));
+            .Select(_ => (Action)(() => store.Add(TransactionFactory.Create())));
 
         var readers = Enumerable.Range(0, 50)
             .Select(_ => (Action)(() =>

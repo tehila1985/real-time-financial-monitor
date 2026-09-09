@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useState, type FormEvent } from 'react'
 import { postTransaction } from '../api/transactionsApi'
+import { useAutoResettingState } from '../state/useAutoResettingState'
 import { TRANSACTION_STATUSES, type Transaction, type TransactionStatus } from '../types/transaction'
 import { generateId } from '../utils/generateId'
 
@@ -8,24 +9,26 @@ export function TransactionForm() {
   const [amount, setAmount] = useState('')
   const [currency, setCurrency] = useState('USD')
   const [status, setStatus] = useState<TransactionStatus>('Pending')
-  const [submitState, setSubmitState] = useState<'idle' | 'sending' | 'success' | 'error'>('idle')
-
-  // Reverts the success message after 3s — cleared on unmount so a component
-  // that's gone doesn't schedule a state update (same fix as useBatchedUpdates'
-  // rAF cleanup, study/14).
-  const resetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  useEffect(() => {
-    return () => {
-      if (resetTimeoutRef.current !== null) clearTimeout(resetTimeoutRef.current)
-    }
-  }, [])
+  const [submitState, setSubmitState, setSubmitStateWithAutoReset] = useAutoResettingState<
+    'idle' | 'sending' | 'success' | 'error'
+  >('idle', 'idle')
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
+
+    // Defense-in-depth beyond the input's `required`/`type="number"` HTML
+    // validation (found in code review): `Number('')` is `0`, not `NaN`, so a
+    // blank amount that somehow reached this handler would otherwise submit
+    // silently as a zero-amount transaction instead of being rejected.
+    const parsedAmount = Number(amount)
+    if (amount.trim() === '' || Number.isNaN(parsedAmount)) {
+      setSubmitState('error')
+      return
+    }
+
     const transaction: Transaction = {
       transactionId: generateId(),
-      amount: Number(amount),
+      amount: parsedAmount,
       currency,
       status,
       timestamp: new Date().toISOString(),
@@ -34,9 +37,8 @@ export function TransactionForm() {
     setSubmitState('sending')
     try {
       await postTransaction(transaction)
-      setSubmitState('success')
+      setSubmitStateWithAutoReset('success')
       setAmount('')
-      resetTimeoutRef.current = setTimeout(() => setSubmitState('idle'), 3000)
     } catch {
       setSubmitState('error')
     }
@@ -84,7 +86,7 @@ export function TransactionForm() {
       )}
       {submitState === 'error' && (
         <p className="alert" role="alert">
-          Failed to submit transaction.
+          Failed to submit transaction. Check the amount and try again.
         </p>
       )}
     </form>
