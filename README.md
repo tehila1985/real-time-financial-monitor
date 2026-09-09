@@ -50,11 +50,11 @@ Open `http://localhost:5180`. (`5180` is the host-side port; change it in
 ## Tests
 
 ```bash
-# Backend - xUnit, 15 tests (Storage, Service, API integration)
+# Backend - xUnit (Storage, Service, API integration)
 cd backend
 dotnet test
 
-# Frontend - Vitest + React Testing Library, 15 tests
+# Frontend - Vitest + React Testing Library
 cd frontend
 npm test
 ```

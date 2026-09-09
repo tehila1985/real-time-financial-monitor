@@ -5,7 +5,16 @@ import type { Transaction } from '../types/transaction'
 import { filterTransactions, type StatusFilter } from './filterTransactions'
 import { useBatchedUpdates } from './useBatchedUpdates'
 
-function mergeByIdNewestFirst(previous: Transaction[], batch: Transaction[]): Transaction[] {
+// Mirrors the backend's default Storage:RetentionCap (docs/DESIGN.md §13).
+// Without this, the frontend's own copy of the feed grows without bound for
+// as long as the tab stays open — the backend evicts old entries, but merging
+// live updates into local state never did. That's also what caused a real
+// UX inconsistency: refreshing after a long session showed fewer transactions
+// (the backend's capped 1000) than were visible a moment before (this array,
+// uncapped) — found in code review, not by design.
+const MAX_RETAINED_TRANSACTIONS = 1000
+
+export function mergeByIdNewestFirst(previous: Transaction[], batch: Transaction[]): Transaction[] {
   // No upsert on the backend (docs/DESIGN.md §10), but a repeated
   // transactionId is handled defensively here too — replaces in place rather
   // than duplicating a row.
@@ -17,6 +26,7 @@ function mergeByIdNewestFirst(previous: Transaction[], batch: Transaction[]): Tr
   // O(n log n) sort otherwise re-parses each element's Date O(log n) times.
   return Array.from(byId.values(), (t) => [Date.parse(t.timestamp), t] as const)
     .sort((a, b) => b[0] - a[0])
+    .slice(0, MAX_RETAINED_TRANSACTIONS)
     .map(([, t]) => t)
 }
 
@@ -27,6 +37,7 @@ function mergeByIdNewestFirst(previous: Transaction[], batch: Transaction[]): Tr
  */
 export function useTransactionFeed() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('All')
+  const [snapshotError, setSnapshotError] = useState(false)
   const { items: transactions, enqueue, seed } = useBatchedUpdates<Transaction>(mergeByIdNewestFirst)
 
   useEffect(() => {
@@ -36,8 +47,10 @@ export function useTransactionFeed() {
         if (!cancelled) seed(snapshot)
       })
       .catch(() => {
-        // Snapshot failure just means starting empty; live updates still work
-        // once the hub connects.
+        // Live updates still work once the hub connects even if this fails —
+        // but the dashboard should say so rather than looking identical to a
+        // genuinely empty backend (found in code review: this was silent).
+        if (!cancelled) setSnapshotError(true)
       })
     return () => {
       cancelled = true
@@ -51,5 +64,5 @@ export function useTransactionFeed() {
     [transactions, statusFilter],
   )
 
-  return { transactions: filtered, statusFilter, setStatusFilter, connectionStatus }
+  return { transactions: filtered, statusFilter, setStatusFilter, connectionStatus, snapshotError }
 }

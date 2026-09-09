@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { postTransaction } from '../api/transactionsApi'
 import { TRANSACTION_STATUSES, type Transaction, type TransactionStatus } from '../types/transaction'
+import { generateId } from '../utils/generateId'
 
 /** Manual entry half of /add — see TransactionGenerator for the one-click half. */
 export function TransactionForm() {
@@ -12,7 +13,7 @@ export function TransactionForm() {
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
     const transaction: Transaction = {
-      transactionId: crypto.randomUUID(),
+      transactionId: generateId(),
       amount: Number(amount),
       currency,
       status,
