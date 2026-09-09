@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { postTransaction } from '../api/transactionsApi'
 import { TRANSACTION_STATUSES, type Transaction, type TransactionStatus } from '../types/transaction'
 import { generateId } from '../utils/generateId'
@@ -9,6 +9,17 @@ export function TransactionForm() {
   const [currency, setCurrency] = useState('USD')
   const [status, setStatus] = useState<TransactionStatus>('Pending')
   const [submitState, setSubmitState] = useState<'idle' | 'sending' | 'success' | 'error'>('idle')
+
+  // Reverts the success message after 3s — cleared on unmount so a component
+  // that's gone doesn't schedule a state update (same fix as useBatchedUpdates'
+  // rAF cleanup, study/14).
+  const resetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (resetTimeoutRef.current !== null) clearTimeout(resetTimeoutRef.current)
+    }
+  }, [])
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
@@ -25,7 +36,7 @@ export function TransactionForm() {
       await postTransaction(transaction)
       setSubmitState('success')
       setAmount('')
-      setTimeout(() => setSubmitState('idle'), 3000)
+      resetTimeoutRef.current = setTimeout(() => setSubmitState('idle'), 3000)
     } catch {
       setSubmitState('error')
     }

@@ -47,8 +47,13 @@ describe('TransactionTable', () => {
 
     render(<TransactionTable transactions={many} />)
 
-    expect(screen.queryByText('id-199')).toBeInTheDocument()
-    expect(screen.queryByText('id-200')).not.toBeInTheDocument()
+    // Asserting against `title` (the full, untruncated id) rather than the
+    // visible cell text: the cell only ever shows `id.slice(0, 8)`, so a
+    // text-based assertion would pass by coincidence for these short test
+    // ids and give false confidence — it wouldn't catch a real 36-char GUID
+    // being truncated to the wrong id. `title` holds the real value.
+    expect(screen.queryByTitle('id-199')).toBeInTheDocument()
+    expect(screen.queryByTitle('id-200')).not.toBeInTheDocument()
   })
 
   it('applies the entrance-animation class to each row (Bonus 5)', () => {
