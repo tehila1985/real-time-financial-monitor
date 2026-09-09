@@ -74,6 +74,21 @@ describe('useTransactionHub', () => {
     expect(handler).toHaveBeenCalledWith(payload)
   })
 
+  it('invokes the same handler when the server sends TransactionUpdated (docs/DESIGN.md §10)', async () => {
+    mockConnection.start.mockResolvedValue(undefined)
+    const handler = vi.fn()
+    renderHook(() => useTransactionHub(handler))
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    const registered = mockConnection.on.mock.calls.find(([event]) => event === 'TransactionUpdated')?.[1]
+    const payload = { transactionId: 'x', status: 'Completed' }
+    registered?.(payload)
+
+    expect(handler).toHaveBeenCalledWith(payload)
+  })
+
   it('transitions reconnecting -> connected via the onreconnecting/onreconnected callbacks', async () => {
     mockConnection.start.mockResolvedValue(undefined)
     const { result } = renderHook(() => useTransactionHub(vi.fn()))

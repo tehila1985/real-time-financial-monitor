@@ -1,4 +1,4 @@
-import type { Transaction } from '../types/transaction'
+import type { Transaction, TransactionStatus } from '../types/transaction'
 
 // Empty in production (same-origin, via nginx reverse proxy — §18); set to the
 // backend's dev port in .env.development for local cross-origin dev.
@@ -27,4 +27,24 @@ export function postTransaction(transaction: Transaction): Promise<Transaction> 
 
 export function getTransactionsSnapshot(): Promise<Transaction[]> {
   return fetchJson<Transaction[]>(TRANSACTIONS_URL, undefined, 'fetch transactions')
+}
+
+/**
+ * Transitions an existing transaction's status (docs/DESIGN.md §10) — a
+ * dedicated sub-resource PUT, not a second postTransaction call, matching the
+ * backend's own `PUT .../{id}/status` endpoint shape.
+ */
+export function updateTransactionStatus(
+  transactionId: string,
+  status: TransactionStatus,
+): Promise<Transaction> {
+  return fetchJson<Transaction>(
+    `${TRANSACTIONS_URL}/${transactionId}/status`,
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    },
+    'update transaction status',
+  )
 }

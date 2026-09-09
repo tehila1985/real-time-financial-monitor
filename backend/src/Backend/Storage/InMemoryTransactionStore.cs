@@ -45,6 +45,27 @@ public sealed class InMemoryTransactionStore : IStorage
         }
     }
 
+    public Transaction? UpdateStatus(Guid transactionId, TransactionStatus newStatus)
+    {
+        lock (_lock)
+        {
+            // Read-modify-write under the same lock as Add() — this is the
+            // exact reason the lock exists around the whole compound
+            // operation, not just around the dictionary's own thread-safe
+            // methods: a plain ConcurrentDictionary would let a concurrent
+            // Add() and UpdateStatus() interleave between the read and the
+            // write here, silently losing whichever one wrote first.
+            if (!_byId.TryGetValue(transactionId, out var existing))
+            {
+                return null;
+            }
+
+            var updated = existing with { Status = newStatus };
+            _byId[transactionId] = updated; // whole-object replace, same as Add() — never a partial mutation
+            return updated;
+        }
+    }
+
     public IReadOnlyList<Transaction> GetSnapshot()
     {
         // Only the O(n) copy needs the lock; sorting is read-only work on our

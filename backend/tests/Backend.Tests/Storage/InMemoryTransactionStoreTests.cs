@@ -119,6 +119,79 @@ public class InMemoryTransactionStoreTests
     }
 
     [Fact]
+    public void UpdateStatus_ExistingId_ReturnsUpdatedTransactionAndReplacesItInTheStore()
+    {
+        var store = new InMemoryTransactionStore();
+        var original = TransactionFactory.Create(status: TransactionStatus.Pending);
+        store.Add(original);
+
+        var updated = store.UpdateStatus(original.TransactionId, TransactionStatus.Completed);
+
+        Assert.NotNull(updated);
+        Assert.Equal(TransactionStatus.Completed, updated!.Status);
+        Assert.Equal(original.TransactionId, updated.TransactionId);
+        Assert.Equal(original.Amount, updated.Amount); // only Status changes, nothing else
+        var snapshot = store.GetSnapshot();
+        Assert.DoesNotContain(original, snapshot); // the old (Pending) record is gone...
+        Assert.Contains(updated, snapshot); // ...replaced in place by the new one
+    }
+
+    [Fact]
+    public void UpdateStatus_UnknownId_ReturnsNullAndChangesNothing()
+    {
+        var store = new InMemoryTransactionStore();
+        var existing = TransactionFactory.Create();
+        store.Add(existing);
+
+        var result = store.UpdateStatus(Guid.NewGuid(), TransactionStatus.Failed);
+
+        Assert.Null(result);
+        Assert.Single(store.GetSnapshot()); // unrelated existing data untouched
+    }
+
+    [Fact]
+    public void UpdateStatus_DoesNotConsumeARetentionCapSlot()
+    {
+        // Same invariant as Add_SameIdTwice_OverwritesAndDoesNotCountAsANewArrival:
+        // updating status is not a "new arrival" for eviction purposes.
+        var store = new InMemoryTransactionStore(retentionCap: 2);
+        var first = TransactionFactory.Create(status: TransactionStatus.Pending);
+        var second = TransactionFactory.Create();
+        store.Add(first);
+        store.Add(second);
+
+        store.UpdateStatus(first.TransactionId, TransactionStatus.Completed);
+        store.Add(TransactionFactory.Create()); // a genuinely new arrival, third overall
+
+        var snapshot = store.GetSnapshot();
+        Assert.Equal(2, snapshot.Count); // still at cap, not exceeded
+        Assert.DoesNotContain(snapshot, t => t.TransactionId == first.TransactionId); // evicted by the real 3rd arrival, not by the update
+    }
+
+    [Fact]
+    public void UpdateStatus_ConcurrentlyWithAdd_NoExceptionAndSnapshotStaysConsistent()
+    {
+        var store = new InMemoryTransactionStore(retentionCap: 200);
+        var target = TransactionFactory.Create(status: TransactionStatus.Pending);
+        store.Add(target);
+
+        var writers = Enumerable.Range(0, 100)
+            .Select(_ => (Action)(() => store.Add(TransactionFactory.Create())));
+        var updaters = Enumerable.Range(0, 100)
+            .Select(i => (Action)(() => store.UpdateStatus(
+                target.TransactionId,
+                i % 2 == 0 ? TransactionStatus.Completed : TransactionStatus.Failed)));
+
+        var exception = Record.Exception(() => Parallel.Invoke(writers.Concat(updaters).ToArray()));
+
+        Assert.Null(exception);
+        var snapshot = store.GetSnapshot();
+        Assert.Equal(snapshot.Count, snapshot.Select(t => t.TransactionId).Distinct().Count()); // no duplicates
+        var finalTarget = snapshot.Single(t => t.TransactionId == target.TransactionId);
+        Assert.True(finalTarget.Status is TransactionStatus.Completed or TransactionStatus.Failed); // one of the written values, not a torn mix
+    }
+
+    [Fact]
     public void Add_ManyConcurrentDistinctIds_CountEqualsCapWithNoDuplicates()
     {
         const int cap = 100;

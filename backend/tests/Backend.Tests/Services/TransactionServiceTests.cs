@@ -123,4 +123,55 @@ public class TransactionServiceTests
         await Assert.ThrowsAsync<OperationCanceledException>(() => service.ProcessAsync(transaction));
         storage.Verify(s => s.Add(transaction), Times.Once); // the write still already happened
     }
+
+    [Fact]
+    public async Task UpdateStatusAsync_ExistingId_BroadcastsTransactionUpdatedWithTheUpdatedPayload()
+    {
+        var (storage, clientProxy, service) = CreateSut();
+        var updated = TransactionFactory.Create(status: TransactionStatus.Completed);
+        storage.Setup(s => s.UpdateStatus(updated.TransactionId, TransactionStatus.Completed)).Returns(updated);
+
+        var result = await service.UpdateStatusAsync(updated.TransactionId, TransactionStatus.Completed);
+
+        Assert.Equal(updated, result);
+        clientProxy.Verify(p => p.SendCoreAsync(
+            TransactionService.TransactionUpdatedEvent,
+            It.Is<object?[]>(args => args.Length == 1 && Equals(args[0], updated)),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task UpdateStatusAsync_UnknownId_ReturnsNullAndBroadcastsNothing()
+    {
+        var (storage, clientProxy, service) = CreateSut();
+        var unknownId = Guid.NewGuid();
+        storage.Setup(s => s.UpdateStatus(unknownId, It.IsAny<TransactionStatus>())).Returns((Transaction?)null);
+
+        var result = await service.UpdateStatusAsync(unknownId, TransactionStatus.Failed);
+
+        Assert.Null(result);
+        clientProxy.Verify(
+            p => p.SendCoreAsync(It.IsAny<string>(), It.IsAny<object?[]>(), It.IsAny<CancellationToken>()),
+            Times.Never); // no event for a transition that never happened
+    }
+
+    [Fact]
+    public async Task UpdateStatusAsync_BroadcastThrows_DoesNotFailTheAlreadySuccessfulUpdate()
+    {
+        // Same durability contract as ProcessAsync: the storage write already
+        // happened; a broadcast failure must not turn that into a caller-visible error.
+        var (storage, clientProxy, service) = CreateSut();
+        var updated = TransactionFactory.Create(status: TransactionStatus.Completed);
+        storage.Setup(s => s.UpdateStatus(updated.TransactionId, TransactionStatus.Completed)).Returns(updated);
+        clientProxy
+            .Setup(p => p.SendCoreAsync(It.IsAny<string>(), It.IsAny<object?[]>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("simulated broadcast failure"));
+
+        Transaction? result = null;
+        var exception = await Record.ExceptionAsync(async () =>
+            result = await service.UpdateStatusAsync(updated.TransactionId, TransactionStatus.Completed));
+
+        Assert.Null(exception);
+        Assert.Equal(updated, result);
+    }
 }

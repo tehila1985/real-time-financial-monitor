@@ -76,15 +76,25 @@ Browser (/add) → POST /api/transactions → Controller (HTTP concerns only)
    → Controller returns 201 Created + the transaction
 ```
 
+**Status transition (`/monitor`'s row actions → backend):**
+```text
+Browser (/monitor) → PUT /api/transactions/{id}/status → Controller
+   → TransactionService.UpdateStatusAsync(id, status)
+        → IStorage.UpdateStatus(id, status)     [null if id doesn't exist]
+        → IHubContext.Clients.All.SendAsync    [broadcast "TransactionUpdated", outside any lock]
+   → Controller returns 200 OK + the updated transaction, or 404
+```
+
 **Live dashboard (`/monitor`):**
 ```text
 Browser (/monitor) mounts
-   → GET /api/transactions            → renders initial snapshot
-   → connects to /hubs/transactions   → SignalR client
-   → on "TransactionReceived"         → buffered, flushed via requestAnimationFrame
+   → GET /api/transactions              → renders initial snapshot
+   → connects to /hubs/transactions     → SignalR client
+   → on "TransactionReceived"           → buffered, flushed via requestAnimationFrame
+   → on "TransactionUpdated"            → same buffer/flush path, merged by id
 ```
 
-> Note: there is a **single** event name, `TransactionReceived` — see §10 for why the earlier "create vs. update" event distinction was removed.
+> Note: two distinct event names — `TransactionReceived` for a new arrival, `TransactionUpdated` for a status transition (§10) — so a client can tell them apart by name alone, even though both currently drive the identical merge-by-id logic on the frontend.
 
 ## 7. Component Responsibilities
 
@@ -207,12 +217,12 @@ Redis:ConnectionString = <only if the §20/ADR-0001 distributed-sync bonus is im
 | Side effects | `IStorage.Add` + broadcast `TransactionReceived` |
 | Dependencies | `TransactionService` → `IStorage`, `IHubContext<TransactionHub>` |
 
-> **Decision: no upsert semantics. Every POST is treated as a new arrival, regardless of `transactionId`.**
-> **Alternatives considered:** the earlier design had POST perform an *upsert* — a repeated `transactionId` would update the existing record and broadcast a distinct `TransactionUpdated` event, modeling a transaction's status lifecycle (Pending → Completed).
-> **Why this one:** the assignment's ingestion requirement is "receive transaction data" — it never describes a transaction being *updated* after the fact. Modeling a create-vs-update lifecycle was an invented requirement, not a derived one. It also doubled the surface area to test (two branches in the Service, two event names, two response codes) for a scenario nothing in the spec asks for.
-> **Why not the upsert version:** it's a reasonable *product* idea for a real financial monitor, but it is out of scope for this MVP, and — per the Right-Sized Architecture principle — functionality should not be invented just because it would be a nice demonstration.
-> **Consequence for storage:** `IStorage.Add(Transaction tx)` returns `void` (not a `bool isNew` as before) — if the same `transactionId` is posted twice, the dictionary entry is simply overwritten with no special handling, exactly like storing under any other key. There is one event name, `TransactionReceived`, always broadcast.
-> **If asked in an interview why you didn't handle duplicate `transactionId`s specially:** because nothing in the spec defines what a duplicate should mean, and inventing semantics for an undefined case is worse than leaving it as "last write wins by key" — an honest, simple, well-understood behavior.
+> **Decision: ingestion (`POST`) and a status-lifecycle transition (`PUT .../{id}/status`) are two separate, distinctly-shaped operations — not one endpoint that silently upserts on a repeated `transactionId`.**
+> **Why this wasn't asked for, and why it's here anyway:** the assignment's ingestion requirement is "receive transaction data" — it doesn't describe an update flow. But "Pending / Completed / Failed" in the data model (§9, straight from the assignment's own schema) is itself a lifecycle, and a "live dashboard used by support agents" whose only way to move a transaction off Pending is a raw `curl` to the ingestion endpoint is a materially weaker product than the same dashboard with a real, first-class way to do it. Same reasoning already applied to the `GET` snapshot endpoint and to rate limiting above: not literally required, but a small, proportionate addition the spec doesn't forbid and the product goal clearly benefits from.
+> **Why a dedicated `PUT /api/transactions/{id}/status` endpoint, not upsert-via-POST:** a repeated POST silently overwriting whatever fields differ conflates two operations with different failure semantics — "ingest new data" always succeeds (§ below), "transition an existing transaction" should fail loudly (`404`) if there's nothing to transition. Splitting them means each endpoint's contract says exactly one thing, testable independently, with no branching inside either handler.
+> **Why the update endpoint only ever changes `Status`, not a general-purpose PUT of the whole `Transaction`:** amount, currency, and timestamp are facts about how a transaction arrived — a support agent's action is "mark this Completed/Failed," never "silently rewrite what was originally submitted." Scoping the request body (`UpdateTransactionStatusRequest`, one field) to exactly that action keeps the API honest about what it actually lets a caller do.
+> **Consequence for storage:** `IStorage` has two distinct write methods — `Add` (always succeeds, whole-object replace, no existence check) and `UpdateStatus` (requires the id to already exist, returns `null` otherwise). `POST` still overwrites-by-id with no special handling if the same `transactionId` arrives twice — that part is unrelated to the status-update endpoint and remains simple, honest "last write wins by key."
+> **Two distinct broadcast events, not one:** `TransactionReceived` for a genuinely new arrival, `TransactionUpdated` for a status transition — so a client can tell "a new row arrived" from "an existing row changed" from the event name alone, without inspecting payload state. Both currently drive the same merge-by-id logic on the frontend (`mergeByIdNewestFirst` replaces by id regardless of which event delivered the payload), so this costs nothing beyond naming the event honestly.
 
 > **Decision: `POST` is rate-limited (`429` past the configured window); `GET` is not.**
 > **What:** `Microsoft.AspNetCore.RateLimiting` — built into ASP.NET Core since .NET 7, no NuGet package added. A single **global** fixed window (default: 200 requests / 10 seconds), not partitioned per client.
@@ -228,9 +238,24 @@ Redis:ConnectionString = <only if the §20/ADR-0001 distributed-sync bonus is im
 > **A real gap this closes, caught during review:** a *positional* record with non-nullable value types (`decimal`, `Guid`, `DateTimeOffset`) silently binds a **missing** JSON field to its default (`0`, `Guid.Empty`, `0001-01-01`) instead of failing — and `[Required]` doesn't catch this either, since it only rejects `null`, and a defaulted value type is never `null`. A POST body missing `"amount"` entirely would have been silently accepted as `amount: 0`. Declaring the properties with `required` instead makes `System.Text.Json` throw if **any** of the 5 fields is absent, regardless of type — which `[ApiController]`'s automatic-400 behavior turns into `400 ValidationProblemDetails` for free.
 > **Why not the DTO-with-nullable-fields alternative:** it would have worked too, but only by reintroducing the DTO/domain split rejected in §9. `required` members solve the same problem inside the one model that already exists.
 > **What "schema-level" means concretely, now:** every field must be *present* (`required`) and *type-correct* (a syntactically valid GUID, a numeric `Amount`, a `Status` string matching one of the three enum names — the enum converter fails to bind otherwise, which is inherent to using an enum, not an added rule). Nothing about the *values* is judged beyond "does it match the documented shape."
-> **What's still deliberately NOT validated:** value plausibility (`amount > 0`), currency format (3-letter code / ISO-4217), and any duplicate-`transactionId` semantics (see the no-upsert decision above) — none of these are stated in the assignment, and enforcing invented rules risks rejecting valid grader test data.
+> **What's still deliberately NOT validated:** value plausibility (`amount > 0`) and currency format (3-letter code / ISO-4217) — neither is stated in the assignment, and enforcing invented rules risks rejecting valid grader test data. A repeated `transactionId` on `POST` specifically still has no special handling — see the ingestion-vs-status-update decision above for what *does* have defined semantics (the dedicated `PUT .../status` endpoint) and why `POST` itself stays a plain overwrite-by-id.
 > **Trade-off:** `"amount": -50` is still accepted (it's a syntactically valid decimal) — only *absence* or a *wrong type* is rejected, never an *implausible value*.
 > **If asked in an interview "does your validation actually catch a missing field":** yes, uniformly for all 5 fields, via `required` members — not via Data Annotations, which would have quietly missed exactly the value-typed ones.
+
+### `PUT /api/transactions/{transactionId}/status`
+| | |
+|---|---|
+| Purpose | Transition an existing transaction to a new `Status` (e.g. Pending → Completed) |
+| Request | JSON body: `{ "status": "Completed" }` (`UpdateTransactionStatusRequest`, one field) |
+| Validation | Schema-level — `status` must be present and a valid `TransactionStatus` name |
+| Response | `200 OK` + the updated transaction |
+| Errors | `400` on malformed/invalid status; `404` if `transactionId` doesn't exist |
+| Side effects | `IStorage.UpdateStatus` + broadcast `TransactionUpdated` |
+| Dependencies | `TransactionService` → `IStorage`, `IHubContext<TransactionHub>` |
+
+> **Decision: `404`, not a silent no-op or a `201`, when `transactionId` doesn't exist.**
+> **Why:** this endpoint models "transition a transaction that exists" — unlike `POST`, which always succeeds by design (§ above), there is a well-defined failure mode here (nothing to transition), and a REST client should be able to trust that `404` means exactly that. Returning `200`/`201` for a no-op would silently hide a caller's bug (a typo'd id, a transaction that was never actually ingested).
+> **Why no rate limiting on this endpoint (unlike `POST`):** the abuse scenario `POST`'s rate limiter defends against is unauthenticated external data flooding the ingestion path; a status transition only ever targets a `transactionId` the caller must already know, which is a materially smaller attack surface, and support-agent-driven status changes are exactly the kind of low-volume, human-paced action a rate limiter would only get in the way of.
 
 ### `GET /api/transactions`
 | | |
@@ -251,7 +276,7 @@ Redis:ConnectionString = <only if the §20/ADR-0001 distributed-sync bonus is im
 Kubernetes liveness and readiness probe targets, respectively — deliberately not the same endpoint once Redis is configured. See §20's decision box for why. Only relevant if the Kubernetes bonus (§19) is pursued.
 
 ### SignalR Hub: `/hubs/transactions`
-Push-only. No client-invokable methods. Clients subscribe to a single event, `TransactionReceived`.
+Push-only. No client-invokable methods. Clients subscribe to two events — `TransactionReceived` (new arrivals) and `TransactionUpdated` (status transitions, §10) — both driving the same merge-by-id logic on the frontend.
 
 ## 11. Real-Time Architecture
 
@@ -343,7 +368,7 @@ Why safe: no possibility of deadlock or thread-pool starvation; concurrent
 > **Why keeping the cap:** it directly reflects the spec's own wording — "store the **latest** transactions" implies *some* notion of a bounded, recent window, not an ever-growing log. It's also a legitimate, low-cost way to demonstrate awareness of a real operational concern (unbounded memory growth in a long-running service), which is exactly the kind of "production-minded but proportionate" judgment call the assignment is evaluating.
 > **Why not "no cap":** it would be *simpler* code (no `Queue`, no eviction branch), but it would also mean deliberately not addressing a concern the spec's own wording gestures at, for a MVP whose whole premise ("financial monitor," "support agents," "live dashboard") implies a long-running service, not a one-shot script.
 > **Why 1000 specifically, and not e.g. 100 or 10,000:** it's a round, arbitrary number picked to be comfortably larger than the "100 transactions arrive quickly" burst scenario (so a single burst can't wipe out everything already on screen), while still small enough that memory footprint is trivial (on the order of a few hundred KB for 1000 entries, including per-object and dictionary/queue overhead — not just the raw field sizes). **Be upfront in an interview that this number itself has no special significance** — the *mechanism* (a bounded, FIFO-evicted store) is the actual design decision; the constant is a reasonable default, adjustable via config (`Storage:RetentionCap`).
-> **Eviction policy chosen: arrival order, not recency-of-update.** Since there is no update concept anymore (§10), this is now even simpler than originally designed: the queue only ever receives an `Enqueue` on first-time IDs, never a "move to the back" on update.
+> **Eviction policy chosen: arrival order, not recency-of-update.** A status transition (§10) deliberately never touches `_arrivalOrder` — `UpdateStatus` only replaces the dictionary entry in place. This keeps the queue's job singular: it only ever receives an `Enqueue` on a genuinely new id, never a "move to the back" because something about an existing one changed. Recency-of-update eviction was considered and rejected — it would mean a transaction's position in the retention window depends on *when it was last touched*, not *when it arrived*, which is a materially different (and less predictable) policy than what "store the latest transactions" suggests.
 
 Storage contains **no business logic** — only add/snapshot operations.
 
@@ -432,6 +457,7 @@ Additional measures:
 > **Why not a library:** nothing here needs orchestration, staggering, or exit animations — a library would be a dependency added for capabilities this feature doesn't use.
 > **Why it doesn't replay on every re-sort:** rows are keyed by `transactionId` (§16 above); React's reconciliation moves an existing DOM node when its position changes rather than destroying and recreating it, so the CSS entrance animation — which fires on element creation, not on re-render — only plays for a genuinely new transaction, never for one that's just shifted position in the sorted list.
 > **Accessibility:** the entrance animation respects `prefers-reduced-motion: reduce`; the status-color transition (a plain `transition`, not a `@keyframes` animation) is left as-is under reduced motion, consistent with WCAG guidance focusing on movement rather than color easing.
+> **Reachable from the product UI, not just the API:** the status-color transition plays whenever `TransactionTable`'s own "Complete"/"Fail" actions (§10) update a transaction's status — the same row, same DOM node (keyed by `transactionId`), just a different `StatusBadge` color, eased by the existing `transition`. No separate wiring was needed for this: the animation was written generically against "this row's status changed," and the status-update feature is simply the first thing that actually changes it.
 
 ## 17. Testing Strategy
 
@@ -458,11 +484,19 @@ TDD is applied to `IStorage` and `TransactionService`: tests are written to spec
 | Storage (concurrency) | N parallel writes, distinct IDs, cap < N | count == cap, no exception |
 | Storage (concurrency) | Parallel writes, same ID | No exception; final value is one of the written values |
 | Storage (concurrency) | Parallel write + snapshot | No exception; every snapshot internally consistent |
+| Storage | `UpdateStatus` on an existing id | Returns the updated transaction; replaces it in the store; not a new arrival for eviction purposes |
+| Storage | `UpdateStatus` on an unknown id | Returns `null`; store unchanged |
+| Storage (concurrency) | Parallel `Add` + `UpdateStatus` on the same id | No exception; final status is one of the written values, never a torn mix |
 | Service | Any valid transaction | `Storage.Add` called; broadcasts `TransactionReceived` with matching payload |
 | Service | Storage write succeeds, broadcast throws | Call still completes without throwing; storage write already happened |
+| Service | `UpdateStatusAsync` on an existing id | `Storage.UpdateStatus` called; broadcasts `TransactionUpdated` with the updated payload |
+| Service | `UpdateStatusAsync` on an unknown id | Returns `null`; no broadcast at all |
 | API (integration) | Valid POST | `201` + body; visible in subsequent GET |
 | API (integration) | Malformed POST (bad GUID/enum/missing field) | `400` + `ValidationProblemDetails` |
 | API (integration) | GET when empty | `200` + `[]` |
+| API (integration) | `PUT .../status` on an existing id | `200` + updated body; new status visible in subsequent GET |
+| API (integration) | `PUT .../status` on an unknown id | `404` |
+| API (integration) | `PUT .../status` with an invalid status value | `400` |
 | Frontend | `useTransactionFeed` receives N fast messages | State flush count ≪ N |
 | Frontend | `mergeByIdNewestFirst` beyond the retention cap | Oldest evicted, most recent kept (§13's frontend-side cap) |
 | Frontend | Reconnect after a drop (`reconnecting` → `connected`) | Snapshot re-fetched exactly once; not on initial connect, not on every render |
@@ -472,8 +506,11 @@ TDD is applied to `IStorage` and `TransactionService`: tests are written to spec
 | Frontend | `generateId()` with/without `crypto.randomUUID` available | Valid UUID-shaped string either way |
 | Frontend | `TransactionTable` row | Carries the entrance-animation class |
 | Frontend | Submit `/add` form | API client called with matching payload |
+| Frontend | `TransactionTable` status actions, Pending row | "Complete"/"Fail" buttons render, call `updateTransactionStatus` with the right id + status |
+| Frontend | `TransactionTable` status actions, terminal row | No actions render at all for Completed/Failed |
+| Frontend | `hubConnection` on `TransactionUpdated` | Same merge-by-id handler invoked as for `TransactionReceived` |
 
-> Note: the earlier matrix had rows for "upsert of existing ID" and "Service broadcasts Updated vs Created" — these are removed along with the upsert feature (§10). Rows added since then (guard clause, broadcast-failure, reconnect backfill, connection state machine, retention cap, `generateId`, animation class) came out of the code-review and audit passes documented in §26.
+> Note: rows accumulate as the design evolves — guard clause, broadcast-failure handling, reconnect backfill, the connection state machine, the retention cap, `generateId`, the animation class, and (most recently) the status-update endpoint each came out of a deliberate design decision or a code-review/audit pass (§26), not from re-deriving the matrix from scratch each time.
 
 Concurrency tests assert **invariants** (counts, "no exception," "consistent"), never exact interleaving order — this keeps them deterministic despite exercising real `Task.WhenAll` concurrency.
 
@@ -546,7 +583,7 @@ See **[ADR 0001](adr/0001-distributed-sync-redis-backplane.md)** for the full an
 > **Trade-off:** the backend now depends on `StackExchange.Redis` types directly in one file (`Health/RedisHealthCheck.cs`), not just through SignalR's abstraction — an acceptable, narrow exception, and no new NuGet package (`StackExchange.Redis` is already a transitive dependency of `Microsoft.AspNetCore.SignalR.StackExchangeRedis`).
 
 ## 21. ADRs
-Only the distributed-sync strategy warranted a formal, standalone ADR — it is the one decision with an explicit "must document even if not implemented" requirement and several materially different solution shapes. Every other significant decision (SignalR vs. raw WebSockets, in-memory vs. SQLite, no-upsert, reverse-proxy vs. CORS, interface vs. concrete class, Alpine vs. chiseled) is recorded inline, in context, in the relevant section above — each is a single clear-cut call without that same "document regardless" requirement, so a separate ADR file would just fragment the reasoning away from the design it affects.
+Only the distributed-sync strategy warranted a formal, standalone ADR — it is the one decision with an explicit "must document even if not implemented" requirement and several materially different solution shapes. Every other significant decision (SignalR vs. raw WebSockets, in-memory vs. SQLite, ingestion vs. status-update as separate endpoints, reverse-proxy vs. CORS, interface vs. concrete class, Alpine vs. chiseled) is recorded inline, in context, in the relevant section above — each is a single clear-cut call without that same "document regardless" requirement, so a separate ADR file would just fragment the reasoning away from the design it affects.
 
 ## 22. Implementation Plan
 
@@ -631,7 +668,7 @@ This section documents an explicit second pass over the entire design, asking of
 | Client-side filtering, status colors | **Required** | Kept as-is |
 | `requestAnimationFrame` buffering | **Necessary** | Kept — direct answer to the 100-transaction NFR |
 | `React.memo`, top-200 rendering | **Useful** | Kept — cheap, demonstrates React knowledge, honestly caveated as not proven necessary (§16) |
-| Upsert semantics + `TransactionUpdated` event | **Was: invented functionality** | **Removed** — decided with Tehila (§10): no update concept, single `TransactionReceived` event |
+| Status-lifecycle transition (`PUT .../status`, `TransactionUpdated` event) | **Beyond literal spec, scoped deliberately** | **Kept, scoped to `Status` only** — decided with Tehila (§10): a dedicated sub-resource endpoint requiring the transaction to already exist, not a general upsert-via-`POST` or a full-resource `PUT` |
 | `GET /api/transactions` snapshot | **Was: beyond literal spec** | **Kept** — decided with Tehila (§10): UX value outweighs literal minimalism |
 | Retention cap = 1000 | **Useful, not strictly Necessary** | **Kept as designed** — decided with Tehila (§13): reflects the spec's own "latest" wording |
 | `amount > 0` / currency-format validation | **Was: invented business rules** | **Removed** — decided with Tehila (§10): schema-level validation only |

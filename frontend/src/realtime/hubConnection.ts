@@ -11,7 +11,10 @@ export type ConnectionState = 'connecting' | 'connected' | 'reconnecting' | 'dis
 
 /**
  * Wraps the SignalR client's connection lifecycle. Push-only (docs/DESIGN.md
- * §11): subscribes to the single "TransactionReceived" event and reports
+ * §11): subscribes to "TransactionReceived" (new arrivals) and
+ * "TransactionUpdated" (status transitions, §10) — both drive the same
+ * merge-by-id callback, since `mergeByIdNewestFirst` already replaces an
+ * existing row in place regardless of which event delivered it. Also reports
  * connection state for the UI's connection indicator. Automatic reconnect is
  * enabled — a one-line addition that meaningfully improves resilience for a
  * dashboard meant to always reflect current state.
@@ -42,6 +45,9 @@ export function useTransactionHub(onTransactionReceived: (transaction: Transacti
       .build()
 
     connection.on('TransactionReceived', (transaction: Transaction) => {
+      if (!cancelled) handlerRef.current(transaction)
+    })
+    connection.on('TransactionUpdated', (transaction: Transaction) => {
       if (!cancelled) handlerRef.current(transaction)
     })
     connection.onreconnecting(() => {

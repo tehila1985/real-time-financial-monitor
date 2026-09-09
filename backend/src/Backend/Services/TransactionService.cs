@@ -12,11 +12,17 @@ namespace Backend.Services;
 /// </summary>
 public sealed class TransactionService
 {
-    /// <summary>
-    /// The single broadcast event name — see docs/DESIGN.md §10 for why there is
-    /// no separate "Updated" event (no upsert semantics).
-    /// </summary>
+    /// <summary>Broadcast when a new transaction is ingested — see docs/DESIGN.md §10.</summary>
     public const string TransactionReceivedEvent = "TransactionReceived";
+
+    /// <summary>
+    /// Broadcast when an existing transaction's status changes — kept distinct
+    /// from <see cref="TransactionReceivedEvent"/> so a client can tell "a new
+    /// row arrived" from "an existing row changed" without inspecting payload
+    /// state itself, even though both currently drive the same merge-by-id
+    /// logic on the frontend (docs/DESIGN.md §10).
+    /// </summary>
+    public const string TransactionUpdatedEvent = "TransactionUpdated";
 
     private readonly IStorage _storage;
     private readonly IHubContext<TransactionHub> _hubContext;
@@ -44,10 +50,41 @@ public sealed class TransactionService
     public async Task ProcessAsync(Transaction transaction)
     {
         _storage.Add(transaction);
+        await BroadcastAsync(TransactionReceivedEvent, transaction);
+    }
 
+    /// <summary>
+    /// Transitions an existing transaction to a new <see cref="TransactionStatus"/>
+    /// — see docs/DESIGN.md §10. Returns <c>null</c> without broadcasting
+    /// anything if <paramref name="transactionId"/> doesn't exist; the
+    /// Controller turns that into a 404, distinct from <see cref="ProcessAsync"/>,
+    /// which always succeeds.
+    /// </summary>
+    public async Task<Transaction?> UpdateStatusAsync(Guid transactionId, TransactionStatus newStatus)
+    {
+        var updated = _storage.UpdateStatus(transactionId, newStatus);
+        if (updated is null)
+        {
+            return null;
+        }
+
+        await BroadcastAsync(TransactionUpdatedEvent, updated);
+        return updated;
+    }
+
+    /// <summary>
+    /// Shared best-effort broadcast: the storage write is the durability
+    /// contract, broadcasting is best-effort real-time UX on top of it.
+    /// Letting a transient SignalR/Redis error turn an already-persisted
+    /// write into an HTTP 500 would tell the caller "not saved" when it was —
+    /// a false failure a retrying caller could act on incorrectly. The
+    /// transaction still surfaces on the next GET /api/transactions either way.
+    /// </summary>
+    private async Task BroadcastAsync(string eventName, Transaction transaction)
+    {
         try
         {
-            await _hubContext.Clients.All.SendAsync(TransactionReceivedEvent, transaction);
+            await _hubContext.Clients.All.SendAsync(eventName, transaction);
         }
         // Excludes OperationCanceledException (found in code review): a
         // graceful shutdown cancelling an in-flight broadcast is expected,
@@ -59,7 +96,8 @@ public sealed class TransactionService
         {
             _logger.LogWarning(
                 ex,
-                "Broadcast failed for transaction {TransactionId}; the write already succeeded and it will still appear on the next snapshot fetch.",
+                "Broadcast of {EventName} failed for transaction {TransactionId}; the write already succeeded and it will still appear on the next snapshot fetch.",
+                eventName,
                 transaction.TransactionId);
         }
     }

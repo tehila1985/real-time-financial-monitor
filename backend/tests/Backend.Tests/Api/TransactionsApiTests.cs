@@ -41,6 +41,48 @@ public class TransactionsApiTests : IDisposable
     }
 
     [Fact]
+    public async Task PutStatus_ExistingTransaction_Returns200AndUpdatesTheStoredStatus()
+    {
+        var original = TransactionFactory.Create(status: TransactionStatus.Pending);
+        await _client.PostAsJsonAsync("/api/transactions", original);
+
+        var putResponse = await _client.PutAsJsonAsync(
+            $"/api/transactions/{original.TransactionId}/status",
+            new { status = "Completed" });
+
+        Assert.Equal(HttpStatusCode.OK, putResponse.StatusCode);
+        var updated = await putResponse.Content.ReadFromJsonAsync<Transaction>();
+        Assert.Equal(TransactionStatus.Completed, updated!.Status);
+
+        var snapshot = await _client.GetFromJsonAsync<List<Transaction>>("/api/transactions");
+        var stored = Assert.Single(snapshot!);
+        Assert.Equal(TransactionStatus.Completed, stored.Status);
+    }
+
+    [Fact]
+    public async Task PutStatus_UnknownTransactionId_Returns404()
+    {
+        var response = await _client.PutAsJsonAsync(
+            $"/api/transactions/{Guid.NewGuid()}/status",
+            new { status = "Completed" });
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task PutStatus_InvalidStatusValue_Returns400()
+    {
+        var original = TransactionFactory.Create();
+        await _client.PostAsJsonAsync("/api/transactions", original);
+
+        var response = await _client.PutAsJsonAsync(
+            $"/api/transactions/{original.TransactionId}/status",
+            new { status = "NotARealStatus" });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
     public async Task Get_WithTiedTimestamps_ReturnsStableOrderAcrossRepeatedCalls()
     {
         // Integration-level companion to InMemoryTransactionStoreTests' unit

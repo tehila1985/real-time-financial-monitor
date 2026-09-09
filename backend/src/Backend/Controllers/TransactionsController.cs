@@ -24,9 +24,9 @@ public sealed class TransactionsController : ControllerBase
     }
 
     /// <summary>
-    /// Ingests a transaction. Always 201 — there is no upsert semantics; a
-    /// repeated <see cref="Transaction.TransactionId"/> simply overwrites the
-    /// stored entry (see docs/DESIGN.md §10). Schema-level validation (required
+    /// Ingests a transaction. Always 201 — a repeated
+    /// <see cref="Transaction.TransactionId"/> simply overwrites the stored
+    /// entry (see docs/DESIGN.md §10). Schema-level validation (required
     /// fields, correct types) happens automatically via model binding before this
     /// action even runs — see <see cref="Transaction"/>'s `required` members.
     /// Rate-limited (429 past the configured window) — not the GET snapshot,
@@ -43,6 +43,28 @@ public sealed class TransactionsController : ControllerBase
     {
         await _transactionService.ProcessAsync(transaction);
         return StatusCode(StatusCodes.Status201Created, transaction);
+    }
+
+    /// <summary>
+    /// Transitions an existing transaction's status — e.g. Pending → Completed.
+    /// See docs/DESIGN.md §10. A dedicated sub-resource endpoint (`PUT
+    /// .../{id}/status`), not a second full-body PUT on the transaction itself:
+    /// a status change is the only lifecycle transition this system models, so
+    /// the endpoint's shape says exactly that, and the caller never has to
+    /// resend the immutable fields (amount, currency, timestamp) just to
+    /// change one. 404 if <paramref name="transactionId"/> doesn't exist —
+    /// unlike POST, this method requires the transaction to already be there.
+    /// </summary>
+    [HttpPut("{transactionId:guid}/status")]
+    [ProducesResponseType(typeof(Transaction), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<Transaction>> UpdateStatus(
+        [FromRoute] Guid transactionId,
+        [FromBody] UpdateTransactionStatusRequest request)
+    {
+        var updated = await _transactionService.UpdateStatusAsync(transactionId, request.Status);
+        return updated is null ? NotFound() : Ok(updated);
     }
 
     /// <summary>
