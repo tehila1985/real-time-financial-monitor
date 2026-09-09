@@ -93,6 +93,49 @@ public class TransactionsApiTests : IDisposable
         Assert.Empty(snapshot!);
     }
 
+    [Fact]
+    public async Task Post_ExceedsRateLimit_Returns429()
+    {
+        // Own factory, own (tiny) limit — firing 200+ real requests to hit the
+        // production default would make this test slow and pointless; shrinking
+        // the limit via config proves the same wiring with 4 requests instead.
+        // A long window (60s) keeps the test from racing against the window
+        // resetting mid-run.
+        using var factory = _factory.WithWebHostBuilder(builder => builder
+            .UseSetting("RateLimiting:PermitLimit", "3")
+            .UseSetting("RateLimiting:WindowSeconds", "60"));
+        using var client = factory.CreateClient();
+
+        for (var i = 0; i < 3; i++)
+        {
+            var response = await client.PostAsJsonAsync("/api/transactions", MakeTransaction());
+            Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        }
+
+        var limited = await client.PostAsJsonAsync("/api/transactions", MakeTransaction());
+
+        Assert.Equal(HttpStatusCode.TooManyRequests, limited.StatusCode);
+    }
+
+    [Fact]
+    public async Task Get_IsNotRateLimited_EvenAfterPostExhaustsTheLimit()
+    {
+        // The limiter is applied to POST only (docs/DESIGN.md §10) — the
+        // dashboard's snapshot load must never be blocked by ingestion traffic.
+        using var factory = _factory.WithWebHostBuilder(builder => builder
+            .UseSetting("RateLimiting:PermitLimit", "1")
+            .UseSetting("RateLimiting:WindowSeconds", "60"));
+        using var client = factory.CreateClient();
+
+        await client.PostAsJsonAsync("/api/transactions", MakeTransaction());
+        var secondPost = await client.PostAsJsonAsync("/api/transactions", MakeTransaction());
+        Assert.Equal(HttpStatusCode.TooManyRequests, secondPost.StatusCode); // limit is exhausted...
+
+        var getResponse = await client.GetAsync("/api/transactions"); // ...but GET is unaffected
+
+        getResponse.EnsureSuccessStatusCode();
+    }
+
     public void Dispose()
     {
         _client.Dispose();

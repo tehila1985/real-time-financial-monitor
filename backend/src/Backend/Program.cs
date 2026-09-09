@@ -3,6 +3,7 @@ using Backend.Hubs;
 using Backend.Services;
 using Backend.Storage;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.RateLimiting;
 using StackExchange.Redis;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -77,6 +78,31 @@ if (!string.IsNullOrWhiteSpace(redisConnectionString))
     healthChecksBuilder.AddCheck<RedisHealthCheck>("redis", tags: ["ready"]);
 }
 
+// Rate limiting on ingestion (docs/DESIGN.md §10): built into ASP.NET Core
+// since .NET 7 (Microsoft.AspNetCore.RateLimiting), no NuGet package needed.
+// A single global window, not partitioned per-client — see the decision box
+// in DESIGN.md for why. PermitLimit is configurable specifically so the
+// integration test can shrink it instead of firing 200+ real HTTP calls.
+var rateLimitPermitLimit = builder.Configuration.GetValue("RateLimiting:PermitLimit", 200);
+var rateLimitWindowSeconds = builder.Configuration.GetValue("RateLimiting:WindowSeconds", 10);
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.OnRejected = (context, cancellationToken) =>
+    {
+        context.HttpContext.Response.ContentType = "application/json";
+        return new ValueTask(context.HttpContext.Response.WriteAsJsonAsync(
+            new { message = "Too many requests. Please slow down and try again shortly." },
+            cancellationToken));
+    };
+    options.AddFixedWindowLimiter("ingestion", limiterOptions =>
+    {
+        limiterOptions.PermitLimit = rateLimitPermitLimit;
+        limiterOptions.Window = TimeSpan.FromSeconds(rateLimitWindowSeconds);
+        limiterOptions.QueueLimit = 0; // reject immediately past the limit, never queue/delay a caller
+    });
+});
+
 var app = builder.Build();
 
 if (app.Environment.IsDevelopment())
@@ -95,6 +121,8 @@ app.UseExceptionHandler();
 app.UseCors();
 
 app.UseAuthorization();
+
+app.UseRateLimiter();
 
 app.MapControllers();
 app.MapHub<TransactionHub>("/hubs/transactions");

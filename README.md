@@ -1,5 +1,6 @@
 # Real-Time Financial Monitor
 
+[![CI](https://github.com/tehila1985/real-time-financial-monitor/actions/workflows/ci.yml/badge.svg)](https://github.com/tehila1985/real-time-financial-monitor/actions/workflows/ci.yml)
 ![.NET 8](https://img.shields.io/badge/.NET-8-512BD4?logo=dotnet&logoColor=white)
 ![React 19](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)

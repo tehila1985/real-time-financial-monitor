@@ -2,6 +2,7 @@ using Backend.Models;
 using Backend.Services;
 using Backend.Storage;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace Backend.Controllers;
 
@@ -28,10 +29,16 @@ public sealed class TransactionsController : ControllerBase
     /// stored entry (see docs/DESIGN.md §10). Schema-level validation (required
     /// fields, correct types) happens automatically via model binding before this
     /// action even runs — see <see cref="Transaction"/>'s `required` members.
+    /// Rate-limited (429 past the configured window) — not the GET snapshot,
+    /// only this endpoint accepts data from outside the system. See
+    /// docs/DESIGN.md §10 for why the default limit sits well above the
+    /// 100-transaction burst NFR rather than colliding with it.
     /// </summary>
     [HttpPost]
+    [EnableRateLimiting("ingestion")]
     [ProducesResponseType(typeof(Transaction), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
     public async Task<ActionResult<Transaction>> Post([FromBody] Transaction transaction)
     {
         await _transactionService.ProcessAsync(transaction);
