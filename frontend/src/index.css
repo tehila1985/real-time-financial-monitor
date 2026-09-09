@@ -101,12 +101,28 @@ h1 {
   color: white;
 }
 
+/* Page-mount entrance — plays on every navigation/load, with no user action
+   required, so the animation bonus is visible even on a page nobody has
+   interacted with yet. Same compositor-only property choice (opacity +
+   transform) as the row/dot animations below, for the same reason. */
+@keyframes page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .page {
   flex: 1;
   width: 100%;
   max-width: 900px;
   margin: 0 auto;
   padding: var(--space-8) var(--space-6);
+  animation: page-enter 320ms ease-out;
 }
 
 .page-subtitle {
@@ -258,9 +274,45 @@ h1 {
 }
 
 .connection-status__dot {
+  position: relative;
   width: 8px;
   height: 8px;
   border-radius: 50%;
   background: currentColor;
   flex-shrink: 0;
+}
+
+/* Ambient "live" pulse ring — an infinite loop, so it's visible at rest
+   without adding any transaction or triggering any state change. Drawn on a
+   ::after pseudo-element rather than the dot itself so the dot's own size
+   never changes (no layout impact), only an expanding, fading ring around
+   it — again opacity+transform only. */
+.connection-status__dot--live::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: currentColor;
+  animation: connection-pulse 1.8s ease-out infinite;
+}
+
+@keyframes connection-pulse {
+  from {
+    opacity: 0.6;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(2.4);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page {
+    animation: none;
+  }
+
+  .connection-status__dot--live::after {
+    animation: none;
+  }
 }

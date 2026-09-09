@@ -19,7 +19,9 @@ const COLORS: Record<ConnectionState, string> = {
 export function ConnectionStatus({ status }: { status: ConnectionState }) {
   return (
     <p className="connection-status" style={{ color: COLORS[status] }} aria-live="polite">
-      <span className="connection-status__dot" />
+      {/* Ambient "live" pulse — only while actually connected, visible at rest
+          with no user action needed (docs/DESIGN.md §16 bonus animation). */}
+      <span className={`connection-status__dot${status === 'connected' ? ' connection-status__dot--live' : ''}`} />
       {LABELS[status]}
     </p>
   )
