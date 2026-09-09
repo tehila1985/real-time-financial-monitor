@@ -1,5 +1,15 @@
 # Real-Time Financial Monitor
 
+![.NET 8](https://img.shields.io/badge/.NET-8-512BD4?logo=dotnet&logoColor=white)
+![React 19](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
+![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
+![SignalR](https://img.shields.io/badge/SignalR-WebSockets-000000)
+![Redis](https://img.shields.io/badge/Redis-backplane-DC382D?logo=redis&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-multi--stage-2496ED?logo=docker&logoColor=white)
+![Kubernetes](https://img.shields.io/badge/Kubernetes-ready-326CE5?logo=kubernetes&logoColor=white)
+![xUnit](https://img.shields.io/badge/xUnit-tests-512BD4)
+![Vitest](https://img.shields.io/badge/Vitest-tests-6E9F18?logo=vitest&logoColor=white)
+
 A support-agent dashboard that has to stay live: transactions land over HTTP,
 get processed and stored under real concurrent load, and reach every connected
 browser over WebSockets fast enough that a 100-transaction burst never freezes
@@ -51,6 +61,32 @@ work — all of it implemented and verified, not just described (see
 The dashboard's row-entrance and status-color transitions (`TransactionTable.css`)
 are the "Enhanced UI Experience" bonus — plain CSS, animating only `opacity`/
 `transform` so it stays cheap under a burst (see `DESIGN.md §16`).
+
+## If this were production
+
+This is scoped as an MVP on purpose — the assignment asks for that, not a
+production rollout. Left out deliberately, and why:
+
+- **No persistent database.** In-memory storage means a restart loses
+  everything. Fine for a live-only monitor with no durability requirement;
+  a real deployment would need an actual DB, which changes the concurrency
+  story from "one in-process lock" to DB-level transactions.
+- **No authentication/authorization.** The assignment doesn't call for it,
+  and an unauthenticated financial dashboard is obviously not a real product.
+- **No session affinity / sticky routing.** The Redis backplane (see the
+  [ADR](docs/adr/0001-distributed-sync-redis-backplane.md)) fixes cross-pod
+  *broadcast*, not cross-pod *read* consistency — a real rollout needs both
+  solved together, not this backplane alone.
+- **No distributed tracing.** With multiple backend replicas, correlating one
+  transaction's path across pods and the Redis pub/sub hop would need
+  OpenTelemetry (or similar) wired through every layer — no value at this
+  scale, real value the moment there's more than one service to debug across.
+
+None of this is an oversight — see [`DESIGN.md §25`](docs/DESIGN.md#25-risks--mitigations)
+(Risks & Mitigations) and [`§26`](docs/DESIGN.md#26-right-sized-architecture-review)
+(Right-Sized Architecture Review) for the reasoning behind every scope line,
+including the things that were *built* and then deliberately removed once
+they didn't earn their complexity.
 
 ## Prerequisites
 
