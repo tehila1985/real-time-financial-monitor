@@ -38,9 +38,16 @@ spec:
             limits:
               cpu: 250m
               memory: 256Mi
+          # Deliberately different paths, not the same /health for both: this
+          # pod's own process can be perfectly fine while Redis (the backplane
+          # this pod depends on, ADR 0001) is unreachable. Readiness should
+          # reflect that ("stop sending this pod traffic"); liveness must not
+          # ("restarting this pod fixes nothing about a Redis outage" — tying
+          # liveness to Redis would turn a brief Redis blip into a needless
+          # restart loop across both replicas). See docs/DESIGN.md §20.
           readinessProbe:
             httpGet:
-              path: /health
+              path: /health/ready
               port: 8080
             initialDelaySeconds: 5
             periodSeconds: 10

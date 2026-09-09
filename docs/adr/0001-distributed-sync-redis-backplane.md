@@ -37,6 +37,30 @@ The wiring is conditional on purpose: local `dotnet run` and the `WebApplication
 
 No change is required to `TransactionsController`, `TransactionService`, or `IStorage` — the backplane is entirely internal to the SignalR broadcast mechanism, which is exactly why keeping broadcast isolated behind `IHubContext` (see [DESIGN.md §11](../DESIGN.md#11-real-time-architecture)) pays off here.
 
+### The mechanism, visually
+
+The exact scenario from the Problem section above, with the fix in place — a client connected to Pod A receives a transaction that was POSTed to Pod B, without Pod A ever touching storage:
+
+```mermaid
+sequenceDiagram
+    participant ClientA as Browser (connected to Pod A)
+    participant PodA as Backend Pod A
+    participant Redis
+    participant PodB as Backend Pod B
+    participant ClientB as Browser (connected to Pod B)
+
+    ClientB->>PodB: POST /api/transactions
+    PodB->>PodB: IStorage.Add(tx) — Pod B's own memory only
+    PodB->>Redis: PUBLISH TransactionReceived
+    Redis-->>PodA: relayed (backplane)
+    Redis-->>PodB: relayed (backplane, incl. the sender)
+    PodA-->>ClientA: SignalR: TransactionReceived
+    PodB-->>ClientB: SignalR: TransactionReceived
+    Note over ClientA,ClientB: Both clients update live — even though<br/>only Pod B ever touched storage.
+```
+
+Notice what this diagram also makes visible: the storage write (`IStorage.Add`) happens once, only on Pod B. That's the exact boundary of what this ADR fixes — see "Scope" below for why a subsequent `GET /api/transactions` routed to Pod A would *not* see this transaction, even though Pod A's connected client just received it live.
+
 ## Scope — what this solves, and what it deliberately does not
 
 **Solves:** live broadcast fan-out. A client connected to any pod now receives every `TransactionReceived` event, regardless of which pod handled the `POST` that produced it — verified directly (see Status above).

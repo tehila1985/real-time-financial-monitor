@@ -1,6 +1,9 @@
+using Backend.Health;
 using Backend.Hubs;
 using Backend.Services;
 using Backend.Storage;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using StackExchange.Redis;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -23,6 +26,15 @@ var signalRBuilder = builder.Services.AddSignalR();
 if (!string.IsNullOrWhiteSpace(redisConnectionString))
 {
     signalRBuilder.AddStackExchangeRedis(redisConnectionString);
+
+    // A dedicated, long-lived multiplexer for health reporting — separate from
+    // whatever connection SignalR's own backplane manages internally (that one
+    // isn't exposed via DI). Registered as a factory, not eagerly connected:
+    // if Redis isn't reachable yet the first time `/health` resolves this
+    // (e.g. compose/K8s startup ordering), the DI container simply retries the
+    // factory on the next request rather than caching a failure.
+    builder.Services.AddSingleton<IConnectionMultiplexer>(
+        _ => ConnectionMultiplexer.Connect(redisConnectionString));
 }
 
 // CORS: local-dev-only concern (§18) — in production the frontend's nginx
@@ -52,7 +64,18 @@ builder.Services.AddSwaggerGen();
 // they are caught earlier by [ApiController]'s automatic-400 behavior (§10).
 builder.Services.AddProblemDetails();
 
-builder.Services.AddHealthChecks();
+// Plain liveness by default (matches every environment without Redis
+// configured — local `dotnet run`, the integration tests). When Redis *is*
+// configured, `/health` also reports on the backplane's actual reachability
+// (RedisHealthCheck, registered right above) — see docs/DESIGN.md §20 for why
+// a K8s readiness probe needs to reflect this, not just process liveness.
+var healthChecksBuilder = builder.Services.AddHealthChecks();
+if (!string.IsNullOrWhiteSpace(redisConnectionString))
+{
+    // Tagged "ready", not left untagged — see the two MapHealthChecks calls
+    // below for why liveness must NOT depend on this.
+    healthChecksBuilder.AddCheck<RedisHealthCheck>("redis", tags: ["ready"]);
+}
 
 var app = builder.Build();
 
@@ -75,7 +98,17 @@ app.UseAuthorization();
 
 app.MapControllers();
 app.MapHub<TransactionHub>("/hubs/transactions");
-app.MapHealthChecks("/health");
+
+// Liveness ("is this process healthy enough that restarting it would help?")
+// and readiness ("should this pod receive traffic right now?") are answered
+// by deliberately different checks — restarting this pod does nothing to fix
+// a Redis outage, so liveness must NOT depend on Redis (Predicate: false here
+// means "run none of the registered checks", which is always Healthy). Only
+// /health/ready — what K8s's readinessProbe uses (§19, §20) — includes the
+// "ready"-tagged RedisHealthCheck. Conflating the two would turn a brief
+// Redis blip into an unnecessary backend pod restart loop.
+app.MapHealthChecks("/health", new HealthCheckOptions { Predicate = _ => false });
+app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = check => check.Tags.Contains("ready") });
 
 app.Run();
 
