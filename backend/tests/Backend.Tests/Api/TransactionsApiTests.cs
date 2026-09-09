@@ -41,6 +41,26 @@ public class TransactionsApiTests : IDisposable
     }
 
     [Fact]
+    public async Task Get_WithTiedTimestamps_ReturnsStableOrderAcrossRepeatedCalls()
+    {
+        // Integration-level companion to InMemoryTransactionStoreTests' unit
+        // test of the same fix (found in code review: List<T>.Sort is
+        // unstable) — proves the ordering guarantee holds through the real
+        // HTTP + JSON round trip, not just against the store directly.
+        var tiedTimestamp = DateTimeOffset.UtcNow;
+        var first = TransactionFactory.Create(timestamp: tiedTimestamp);
+        var second = TransactionFactory.Create(timestamp: tiedTimestamp);
+
+        await _client.PostAsJsonAsync("/api/transactions", first);
+        await _client.PostAsJsonAsync("/api/transactions", second);
+
+        var firstGet = await _client.GetFromJsonAsync<List<Transaction>>("/api/transactions");
+        var secondGet = await _client.GetFromJsonAsync<List<Transaction>>("/api/transactions");
+
+        Assert.Equal(firstGet, secondGet);
+    }
+
+    [Fact]
     public async Task Post_MissingRequiredField_Returns400()
     {
         // "amount" omitted entirely — proves `required` members catch a missing
