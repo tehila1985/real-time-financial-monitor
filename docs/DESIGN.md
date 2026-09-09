@@ -410,6 +410,8 @@ Additional measures:
 > **Decision: `requestAnimationFrame` buffering is kept as Necessary, not Optional.**
 > **Why it's not optional:** this is the direct, explicit answer to "if 100 transactions arrive quickly, the browser should not freeze" — one of the few *quantified* requirements in the entire assignment. Some mitigation is required; the only real decision is which one, not whether to have one.
 > **Why `requestAnimationFrame` and not just "trust React 18's automatic batching":** React 18 batches updates that occur within the same synchronous callback/microtask, but 100 SignalR messages typically arrive as 100 separate task-queue events (one per network message), not one synchronous burst — so relying on automatic batching alone is not guaranteed to coalesce them. Explicit buffering guarantees an upper bound on render frequency regardless of arrival pattern.
+
+> **Verified against a running backend, not just reasoned about:** fired 100 concurrent `POST /api/transactions` at a live local instance and confirmed via `GET /api/transactions` that all 100 were stored (no drops under concurrent writes to the locked dictionary, §12) — all 100 responded `201`, wall time ~8.7s for the batch. A second, independent 100-transaction burst on top of the first brought the store to exactly 200 entries, confirming no cross-request corruption. (See `study/15-round-3-test-hardening.md` §"Burst test" for the full run, including a real gotcha found while doing it: `scripts/burst-test.sh`'s own per-request `uuidgen`/`date` subprocess spawns — not the backend — are what make it look slow when run under Git Bash on Windows; the backend's actual handling of the burst is fast either way.)
 > **Why not a heavier solution (e.g., a state-management library, Web Workers):** none of those solve a problem this ~10-line mechanism doesn't already solve at MVP scale; they would be complexity introduced without a corresponding gap in coverage.
 
 > **Decision: `React.memo` and top-200 rendering are kept as low-cost, high-signal additions — not because they're proven necessary, but because they're nearly free and demonstrate understanding of React re-render behavior.**
@@ -427,7 +429,7 @@ Additional measures:
 | Tooling | Backend | Frontend |
 |---|---|---|
 | Framework | xUnit | Vitest |
-| Mocking | NSubstitute/Moq | — |
+| Mocking | Moq | — |
 | Assertions | **xUnit's built-in `Assert`** | — |
 | Component testing | — | React Testing Library (behavior-based) |
 | Integration | `WebApplicationFactory<Program>` — only for the validation pipeline and the POST→GET round trip | — |

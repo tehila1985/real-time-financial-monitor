@@ -1,13 +1,47 @@
 # Real-Time Financial Monitor
 
-MVP for a real-time financial transaction monitor: an ASP.NET Core (.NET 8) backend
-ingests transactions via HTTP, stores them thread-safely in memory, and broadcasts
-them live over SignalR to a React + TypeScript dashboard.
+A support-agent dashboard that has to stay live: transactions land over HTTP,
+get processed and stored under real concurrent load, and reach every connected
+browser over WebSockets fast enough that a 100-transaction burst never freezes
+the UI. Backend is ASP.NET Core (.NET 8) with SignalR; frontend is React +
+TypeScript.
 
-**Full design rationale — every decision, every alternative considered, why it was
-chosen — lives in [`docs/DESIGN.md`](docs/DESIGN.md).** This README is only "how to
-run it"; that document is the "why," including a fast Q&A index (§27) and the
-[distributed-sync ADR](docs/adr/0001-distributed-sync-redis-backplane.md).
+<table>
+<tr>
+<td width="50%">
+
+**Live dashboard** (`/monitor`)
+<img src="docs/screenshots/monitor.png" alt="Live dashboard showing a real-time transaction feed with color-coded status badges" width="100%">
+
+</td>
+<td width="50%">
+
+**Transaction simulator** (`/add`)
+<img src="docs/screenshots/add.png" alt="Add Transaction page with a manual entry form and a one-click mock generator" width="100%">
+
+</td>
+</tr>
+</table>
+
+## What makes this more than a CRUD demo
+
+- **Thread safety is proven, not assumed.** The in-memory store is exercised by
+  real `Parallel.ForEach`/`Parallel.Invoke` concurrency tests asserting actual
+  invariants (no lost writes, no duplicate IDs, no corrupted reads mid-write) —
+  not just "it has a `lock`, ship it."
+- **The 100-transaction burst requirement was measured, not just designed
+  for.** A live backend was fired at with 100 concurrent requests twice in a
+  row; both landed with zero drops. See [`DESIGN.md §16`](docs/DESIGN.md#16-performance-strategy)
+  for the real numbers.
+- **The distributed-systems bonus is implemented, not just described.** Most
+  take-homes stop at "here's how I'd solve cross-pod sync in an ADR." This one
+  also ships the SignalR Redis backplane and was verified against two backend
+  instances actually running side by side.
+- **Every non-trivial decision is documented as Decision → Alternatives →
+  Why → Trade-off** in [`docs/DESIGN.md`](docs/DESIGN.md) — including a
+  dedicated section (§26) on complexity that was deliberately **removed**
+  after a second pass judged it unjustified. Section 27 is a fast Q&A index
+  into all of it.
 
 **MVP vs. bonus:** the ingestion API, real-time broadcast, in-memory storage, both
 frontend routes, and the test suites are the required MVP. Everything under
