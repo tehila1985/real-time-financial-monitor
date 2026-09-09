@@ -8,7 +8,7 @@ export function TransactionForm() {
   const [amount, setAmount] = useState('')
   const [currency, setCurrency] = useState('USD')
   const [status, setStatus] = useState<TransactionStatus>('Pending')
-  const [submitState, setSubmitState] = useState<'idle' | 'sending' | 'error'>('idle')
+  const [submitState, setSubmitState] = useState<'idle' | 'sending' | 'success' | 'error'>('idle')
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
@@ -23,8 +23,9 @@ export function TransactionForm() {
     setSubmitState('sending')
     try {
       await postTransaction(transaction)
-      setSubmitState('idle')
+      setSubmitState('success')
       setAmount('')
+      setTimeout(() => setSubmitState('idle'), 3000)
     } catch {
       setSubmitState('error')
     }
@@ -63,8 +64,13 @@ export function TransactionForm() {
       </div>
 
       <button type="submit" className="btn btn-primary" disabled={submitState === 'sending'}>
-        Submit transaction
+        {submitState === 'sending' ? 'Submitting…' : 'Submit transaction'}
       </button>
+      {submitState === 'success' && (
+        <p className="alert alert--success" role="status">
+          ✓ Transaction submitted successfully.
+        </p>
+      )}
       {submitState === 'error' && (
         <p className="alert" role="alert">
           Failed to submit transaction.

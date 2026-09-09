@@ -18,13 +18,14 @@ function randomTransaction(): Transaction {
 }
 
 export function TransactionGenerator() {
-  const [state, setState] = useState<'idle' | 'sending' | 'error'>('idle')
+  const [state, setState] = useState<'idle' | 'sending' | 'success' | 'error'>('idle')
 
   async function handleClick() {
     setState('sending')
     try {
       await postTransaction(randomTransaction())
-      setState('idle')
+      setState('success')
+      setTimeout(() => setState('idle'), 3000)
     } catch {
       setState('error')
     }
@@ -34,8 +35,13 @@ export function TransactionGenerator() {
     <div>
       <h2 className="section-title">Or generate one</h2>
       <button type="button" className="btn btn-secondary" onClick={handleClick} disabled={state === 'sending'}>
-        Generate mock transaction
+        {state === 'sending' ? 'Generating…' : 'Generate mock transaction'}
       </button>
+      {state === 'success' && (
+        <p className="alert alert--success" role="status">
+          ✓ Transaction generated successfully.
+        </p>
+      )}
       {state === 'error' && (
         <p className="alert" role="alert">
           Failed to send transaction.

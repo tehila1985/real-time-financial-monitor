@@ -3,7 +3,7 @@
    right-sized choice (same reasoning as every other "don't add a dependency
    without a real gap" decision in this project — see docs/DESIGN.md §26). */
 :root {
-  --color-bg: #f8fafc;
+  --color-bg: #f1f5f9;
   --color-surface: #ffffff;
   --color-border: #e2e8f0;
   --color-text: #0f172a;
@@ -13,10 +13,13 @@
   --color-danger: #dc2626;
   --color-danger-bg: #fef2f2;
   --color-danger-border: #fecaca;
+  --color-success: #16a34a;
+  --color-success-bg: #f0fdf4;
+  --color-success-border: #bbf7d0;
 
-  --radius: 8px;
-  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
-  --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.08);
+  --radius: 10px;
+  --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.08), 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-md: 0 4px 16px rgba(15, 23, 42, 0.10);
 
   --space-1: 4px;
   --space-2: 8px;
@@ -66,15 +69,17 @@ h1 {
   display: flex;
   align-items: center;
   gap: var(--space-6);
-  padding: var(--space-3) var(--space-6);
-  background: var(--color-surface);
-  border-bottom: 1px solid var(--color-border);
+  padding: var(--space-4) var(--space-8);
+  background: var(--color-primary);
+  border-bottom: none;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.18);
 }
 
 .app-nav__brand {
   font-weight: 700;
-  font-size: 1rem;
-  color: var(--color-text);
+  font-size: 1.05rem;
+  color: white;
+  letter-spacing: -0.01em;
 }
 
 .app-nav__links {
@@ -83,21 +88,22 @@ h1 {
 }
 
 .app-nav__link {
-  color: var(--color-text-muted);
+  color: rgba(255,255,255,0.75);
   text-decoration: none;
   font-weight: 600;
   font-size: 0.9rem;
   padding: var(--space-2) var(--space-3);
   border-radius: var(--radius);
+  transition: background-color 150ms ease, color 150ms ease;
 }
 
 .app-nav__link:hover {
-  background: var(--color-bg);
-  color: var(--color-text);
+  background: rgba(255,255,255,0.15);
+  color: white;
 }
 
 .app-nav__link.active {
-  background: var(--color-primary);
+  background: rgba(255,255,255,0.22);
   color: white;
 }
 
@@ -144,7 +150,7 @@ h1 {
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
   box-shadow: var(--shadow-sm);
-  padding: var(--space-6);
+  padding: var(--space-6) var(--space-8);
 }
 
 .card + .card {
@@ -158,7 +164,7 @@ h1 {
   gap: var(--space-2);
   border: 1px solid transparent;
   border-radius: var(--radius);
-  padding: var(--space-2) var(--space-4);
+  padding: 10px var(--space-6);
   font-size: 0.9rem;
   font-weight: 600;
   font-family: inherit;
@@ -166,6 +172,7 @@ h1 {
   transition:
     background-color 150ms ease,
     border-color 150ms ease,
+    box-shadow 150ms ease,
     opacity 150ms ease;
 }
 
@@ -177,10 +184,12 @@ h1 {
 .btn-primary {
   background: var(--color-primary);
   color: white;
+  box-shadow: 0 1px 4px rgba(37, 99, 235, 0.25);
 }
 
 .btn-primary:hover:not(:disabled) {
   background: var(--color-primary-hover);
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.35);
 }
 
 .btn-secondary {
@@ -191,6 +200,7 @@ h1 {
 
 .btn-secondary:hover:not(:disabled) {
   background: var(--color-bg);
+  border-color: #cbd5e1;
 }
 
 .form-field {
@@ -233,6 +243,12 @@ h1 {
   border: 1px solid var(--color-danger-border);
   color: var(--color-danger);
   font-size: 0.85rem;
+}
+
+.alert--success {
+  background: var(--color-success-bg);
+  border-color: var(--color-success-border);
+  color: var(--color-success);
 }
 
 .filter-bar {
