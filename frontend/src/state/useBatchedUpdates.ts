@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 /**
  * Buffers incoming items outside React state and flushes them via a single
@@ -12,13 +12,15 @@ export function useBatchedUpdates<T>(applyBatch: (previous: T[], batch: T[]) => 
   const [items, setItems] = useState<T[]>([])
   const pendingRef = useRef<T[]>([])
   const scheduledRef = useRef(false)
+  const rafIdRef = useRef<number | null>(null)
 
   const enqueue = useCallback(
     (item: T) => {
       pendingRef.current.push(item)
       if (!scheduledRef.current) {
         scheduledRef.current = true
-        requestAnimationFrame(() => {
+        rafIdRef.current = requestAnimationFrame(() => {
+          rafIdRef.current = null
           scheduledRef.current = false
           const batch = pendingRef.current
           pendingRef.current = []
@@ -28,6 +30,12 @@ export function useBatchedUpdates<T>(applyBatch: (previous: T[], batch: T[]) => 
     },
     [applyBatch],
   )
+
+  useEffect(() => {
+    return () => {
+      if (rafIdRef.current !== null) cancelAnimationFrame(rafIdRef.current)
+    }
+  }, [])
 
   // Merges through applyBatch rather than overwriting outright: if a live
   // enqueue()'d item already flushed into state before this resolves (a real

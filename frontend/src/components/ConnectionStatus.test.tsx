@@ -13,4 +13,14 @@ describe('ConnectionStatus', () => {
     render(<ConnectionStatus status={status} />)
     expect(screen.getByText(label)).toBeInTheDocument()
   })
+
+  it('shows a refresh hint when disconnected', () => {
+    render(<ConnectionStatus status="disconnected" />)
+    expect(screen.getByText(/refresh the page to reconnect/i)).toBeInTheDocument()
+  })
+
+  it('does not show the refresh hint when connected', () => {
+    render(<ConnectionStatus status="connected" />)
+    expect(screen.queryByText(/refresh the page to reconnect/i)).not.toBeInTheDocument()
+  })
 })
