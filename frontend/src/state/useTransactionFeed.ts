@@ -5,7 +5,11 @@ import type { Transaction } from '../types/transaction'
 import { filterTransactions, type StatusFilter } from './filterTransactions'
 import { useBatchedUpdates } from './useBatchedUpdates'
 
-// Mirrors the backend's default Storage:RetentionCap (docs/DESIGN.md §13).
+// Mirrors the backend's default Storage:RetentionCap (docs/DESIGN.md §13) —
+// kept in sync by convention across backend/src/Backend/Program.cs and
+// InMemoryTransactionStore.cs's own default; there's no shared config
+// between the two stacks to enforce this automatically (found in code
+// review — see the comments at both of those, which point back here).
 // Without this, the frontend's own copy of the feed grows without bound for
 // as long as the tab stays open — the backend evicts old entries, but merging
 // live updates into local state never did. That's also what caused a real

@@ -20,6 +20,11 @@ public sealed class InMemoryTransactionStore : IStorage
     private readonly Queue<Guid> _arrivalOrder = new();
     private readonly int _cap;
 
+    // This default is never actually used in production — Program.cs always
+    // passes Storage:RetentionCap explicitly. It only matters to tests that
+    // construct this class directly with no argument, so it must be kept
+    // equal to Program.cs's own "1000" fallback (see the comment there) or
+    // those tests would silently drift from production's real default.
     public InMemoryTransactionStore(int retentionCap = 1000)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(retentionCap);

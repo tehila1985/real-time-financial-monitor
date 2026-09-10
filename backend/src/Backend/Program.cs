@@ -11,6 +11,15 @@ var builder = WebApplication.CreateBuilder(args);
 // Storage + Service — Singleton: one shared instance across all requests in the
 // process (see docs/DESIGN.md §9). TransactionService has no interface (§9) —
 // its only consumer, TransactionsController, is integration-tested, not mocked.
+//
+// The 1000 default below is duplicated in two other places on purpose, not by
+// accident (found in code review) — keep all three in sync if it ever changes:
+//   - InMemoryTransactionStore's own constructor default (int retentionCap = 1000),
+//     which only matters to tests that construct it directly with no argument;
+//     production always passes this config-driven value explicitly.
+//   - frontend/src/state/useTransactionFeed.ts's MAX_RETAINED_TRANSACTIONS,
+//     which mirrors this so the client's own memory cap doesn't diverge from
+//     what the server actually retains.
 var retentionCap = builder.Configuration.GetValue("Storage:RetentionCap", 1000);
 builder.Services.AddSingleton<IStorage>(new InMemoryTransactionStore(retentionCap));
 builder.Services.AddSingleton<TransactionService>();
