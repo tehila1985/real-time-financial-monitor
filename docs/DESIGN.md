@@ -278,6 +278,12 @@ Kubernetes liveness and readiness probe targets, respectively — deliberately n
 ### SignalR Hub: `/hubs/transactions`
 Push-only. No client-invokable methods. Clients subscribe to two events — `TransactionReceived` (new arrivals) and `TransactionUpdated` (status transitions, §10) — both driving the same merge-by-id logic on the frontend.
 
+> **Decision: no connection-count limiting on the Hub, unlike `POST`'s rate limiter (§10).**
+> **The question this closes:** an earlier review flagged this as an open gap — rate limiting was added for ingestion, but nothing stops an unbounded number of WebSocket connections being opened, which is a real (if different) resource-exhaustion vector. Left unresolved once; resolved here, deliberately, rather than left open.
+> **Why the answer is "not here, not at this layer":** in every environment this system actually runs in outside a bare `dotnet run` (`docker-compose.yml`, `k8s/backend-deployment.yaml`), the backend is **never directly reachable** — nginx/the K8s Service is the only public-facing surface (§18's reverse-proxy decision, made for exactly this reason: keep the backend an internal implementation detail). Connection-flood protection is a network-boundary concern, and this system already has a defined network boundary that isn't the application code. Duplicating that protection inside the SignalR hub would defend a boundary that, by design, doesn't face the internet in this deployment shape.
+> **Why this isn't the same reasoning as `POST`'s rate limiter:** the ingestion limiter defends against a *data-flooding* pattern specific to an unauthenticated write endpoint — a concern that exists regardless of network topology, because the assignment explicitly frames this as accepting data from "an external system." A raw connection flood is a generic infrastructure concern (the same one TLS termination, load balancing, and connection draining already are — all handled by nginx/the ingress, never by this app, per §18/§19's own established stance) — not something specific to this Hub.
+> **What a real production rollout would add here, and why it's not this project's job:** a reverse-proxy/ingress-level connection-rate limit (nginx's own `limit_conn`, or a cloud load balancer's connection-per-source throttle) — infrastructure configuration, not application code, and out of scope for the same reason a WAF or DDoS-mitigation service would be.
+
 ## 11. Real-Time Architecture
 
 > **Decision: SignalR, not raw `Microsoft.AspNetCore.WebSockets`.**

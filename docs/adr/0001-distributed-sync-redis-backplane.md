@@ -3,6 +3,8 @@
 ## Status
 Accepted and **implemented** — see [DESIGN.md §20](../DESIGN.md#20-distributed-architecture) / §22 Phase 8. Verified with two separate backend containers sharing one Redis instance: a SignalR client connected only to instance A received a broadcast triggered by a `POST` sent only to instance B — the exact failure mode described below, now fixed.
 
+Re-verified separately after `TransactionUpdated` (§10 in DESIGN.md) was added: the backplane relays every `IHubContext.SendAsync` call regardless of event name, but that's a claim about the mechanism, not evidence for this specific event — re-ran the same two-instance test with a `PUT .../status` sent only to instance B, and a client connected only to instance A received the `TransactionUpdated` broadcast. Confirms the backplane's cross-pod guarantee wasn't accidentally scoped to the one event it was originally proven against.
+
 ## Context
 The backend is designed to be deployed as multiple replicas (pods) behind a Kubernetes Service (see `k8s/backend-deployment.yaml`, `replicas: 2`). Each pod runs its own independent SignalR server instance with its own in-memory connection registry.
 
