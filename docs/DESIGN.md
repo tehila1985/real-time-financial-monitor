@@ -54,7 +54,7 @@ Authentication/authorization, an external persistent database, an actually-deplo
 ## 5. Architecture Overview
 
 ```text
-┌─────────────────────┐        HTTP POST/GET         ┌───────────────────────────┐
+┌─────────────────────┐      HTTP POST/GET/PUT       ┌───────────────────────────┐
 │   Frontend container │ ──────────────────────────▶  │   Backend container       │
 │  React build served  │                               │  ASP.NET Core Kestrel     │
 │  via nginx (reverse   │ ◀──────────────────────────  │  - REST Controllers       │
